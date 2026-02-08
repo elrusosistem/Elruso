@@ -1,14 +1,14 @@
 # STATE.md — Estado Vivo del Proyecto
 
 > Generado automáticamente por scripts/update_state.sh
-> Última actualización: 2026-02-08T23:11:02Z
+> Última actualización: 2026-02-08T23:51:12Z
 
 ---
 
 ## HEAD
 
 ```
-bfb8dfa feat: git remote + scripts mantenimiento + bootstrap reproducible
+bae1891 feat: vault local para secrets + panel de requests con inputs
 ```
 
 **Branch**: `main`
@@ -25,6 +25,8 @@ bfb8dfa feat: git remote + scripts mantenimiento + bootstrap reproducible
 | 0 | feat: bridge GPT↔Claude + inbox humano + panel requests/directives/tasks | `a0032ee` |
 | 0 | chore: add canon context + live state handoff | `1d80623` |
 | 0 | feat: supabase db-first ops (requests/tasks/directives) | `2937684` |
+| 0 | feat: git remote + scripts mantenimiento + bootstrap reproducible | `bfb8dfa` |
+| 0 | chore: update STATE.md post-commit | `0115408` |
 
 ---
 
