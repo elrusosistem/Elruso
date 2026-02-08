@@ -8,7 +8,7 @@
 ## HEAD
 
 ```
-a0032ee feat: bridge GPT↔Claude + inbox humano + panel requests/directives/tasks
+1d80623 chore: add canon context + live state handoff
 ```
 
 **Branch**: `main`
@@ -23,6 +23,7 @@ a0032ee feat: bridge GPT↔Claude + inbox humano + panel requests/directives/tas
 | 0 | Fix Node 22 LTS + migraciones psql | `7256c82` |
 | 0 | Run recorder + panel de runs + security fix | `2e9c1d7` |
 | 0 | Bridge GPT↔Claude + inbox + panel completo | `a0032ee` |
+| 0 | Canon context + live state handoff | `1d80623` |
 
 ---
 

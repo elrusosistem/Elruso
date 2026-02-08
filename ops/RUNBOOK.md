@@ -93,8 +93,31 @@ export DATABASE_URL="postgresql://postgres.[ref]:[pass]@aws-0-[region].pooler.su
 
 ```bash
 # Formato: NNN_descripcion.sql (orden lexicográfico)
-touch db/migrations/001_create_stock_tables.sql
+touch db/migrations/002_ops_tables.sql
 # Escribir SQL, luego ejecutar ./scripts/db_migrate.sh
+```
+
+### Seed: cargar ops JSON a DB
+
+```bash
+# Requiere DATABASE_URL + jq + psql
+# Upsert idempotente: REQUESTS.json → ops_requests, TASKS.json → ops_tasks,
+# DIRECTIVES_INBOX.json → ops_directives
+./scripts/seed_ops_to_db.sh
+
+# El script:
+# 1. Lee ops/REQUESTS.json, TASKS.json, DIRECTIVES_INBOX.json
+# 2. Hace INSERT ... ON CONFLICT DO UPDATE para cada registro
+# 3. Es safe para ejecutar múltiples veces (idempotente)
+```
+
+### Flujo DB-first
+
+```
+1. Ejecutar migraciones:     ./scripts/db_migrate.sh
+2. Seedear datos iniciales:  ./scripts/seed_ops_to_db.sh
+3. API detecta DB creds:     lee/escribe de Supabase (ops_requests, ops_tasks, ops_directives)
+4. Sin DB creds (dev local): API cae a fallback file-backed (ops/*.json)
 ```
 
 ## Deploy Staging

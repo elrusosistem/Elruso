@@ -17,3 +17,12 @@ export function getDb(): SupabaseClient {
   _client = createClient(url, key);
   return _client;
 }
+
+export function tryGetDb(): SupabaseClient | null {
+  if (_client) return _client;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  _client = createClient(url, key);
+  return _client;
+}
