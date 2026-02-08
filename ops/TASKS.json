@@ -14,8 +14,12 @@
     "title": "Migraciones DB: tablas stock_entries, stock_movements",
     "status": "ready",
     "branch": "task/T-001",
-    "depends_on": ["T-000"],
-    "blocked_by": ["REQ-001"]
+    "depends_on": [
+      "T-000"
+    ],
+    "blocked_by": [
+      "REQ-001"
+    ]
   },
   {
     "id": "T-002",
@@ -23,8 +27,12 @@
     "title": "Stock engine: reservar, liberar, ajustar, reconciliar",
     "status": "ready",
     "branch": "task/T-002",
-    "depends_on": ["T-001"],
-    "blocked_by": ["REQ-001"]
+    "depends_on": [
+      "T-001"
+    ],
+    "blocked_by": [
+      "REQ-001"
+    ]
   },
   {
     "id": "T-003",
@@ -32,8 +40,12 @@
     "title": "API endpoints stock: GET /stock, POST /stock/movements",
     "status": "ready",
     "branch": "task/T-003",
-    "depends_on": ["T-002"],
-    "blocked_by": ["REQ-001"]
+    "depends_on": [
+      "T-002"
+    ],
+    "blocked_by": [
+      "REQ-001"
+    ]
   },
   {
     "id": "T-004",
@@ -41,8 +53,12 @@
     "title": "OAuth Tiendanube: flow completo + almacenamiento token",
     "status": "ready",
     "branch": "task/T-004",
-    "depends_on": ["T-003"],
-    "blocked_by": ["REQ-001"]
+    "depends_on": [
+      "T-003"
+    ],
+    "blocked_by": [
+      "REQ-001"
+    ]
   },
   {
     "id": "T-005",
@@ -50,8 +66,12 @@
     "title": "Webhooks Tiendanube: recepción, idempotencia, procesamiento",
     "status": "ready",
     "branch": "task/T-005",
-    "depends_on": ["T-004"],
-    "blocked_by": ["REQ-001"]
+    "depends_on": [
+      "T-004"
+    ],
+    "blocked_by": [
+      "REQ-001"
+    ]
   },
   {
     "id": "T-006",
@@ -59,8 +79,12 @@
     "title": "Sync stock: push a Tiendanube via API",
     "status": "ready",
     "branch": "task/T-006",
-    "depends_on": ["T-005"],
-    "blocked_by": ["REQ-001"]
+    "depends_on": [
+      "T-005"
+    ],
+    "blocked_by": [
+      "REQ-001"
+    ]
   },
   {
     "id": "T-007",
@@ -68,8 +92,12 @@
     "title": "Worker: polling de tasks, ejecución, retry logic",
     "status": "ready",
     "branch": "task/T-007",
-    "depends_on": ["T-003"],
-    "blocked_by": ["REQ-001"]
+    "depends_on": [
+      "T-003"
+    ],
+    "blocked_by": [
+      "REQ-001"
+    ]
   },
   {
     "id": "T-008",
@@ -77,8 +105,12 @@
     "title": "Worker: job de reconciliación automática",
     "status": "ready",
     "branch": "task/T-008",
-    "depends_on": ["T-007"],
-    "blocked_by": ["REQ-001"]
+    "depends_on": [
+      "T-007"
+    ],
+    "blocked_by": [
+      "REQ-001"
+    ]
   },
   {
     "id": "T-009",
@@ -86,8 +118,13 @@
     "title": "Frontend: panel de Requests y Tasks",
     "status": "ready",
     "branch": "task/T-009",
-    "depends_on": ["T-003"],
-    "blocked_by": ["REQ-001", "REQ-003"]
+    "depends_on": [
+      "T-003"
+    ],
+    "blocked_by": [
+      "REQ-001",
+      "REQ-003"
+    ]
   },
   {
     "id": "T-010",
@@ -95,8 +132,13 @@
     "title": "Frontend: panel de Logs y movimientos de stock",
     "status": "ready",
     "branch": "task/T-010",
-    "depends_on": ["T-009"],
-    "blocked_by": ["REQ-001", "REQ-003"]
+    "depends_on": [
+      "T-009"
+    ],
+    "blocked_by": [
+      "REQ-001",
+      "REQ-003"
+    ]
   },
   {
     "id": "T-011",
@@ -104,8 +146,14 @@
     "title": "Runner 24/7: loop automático TASKS → ejecución → PRs → staging",
     "status": "ready",
     "branch": "task/T-011",
-    "depends_on": ["T-007"],
-    "blocked_by": ["REQ-001", "REQ-002", "REQ-004"]
+    "depends_on": [
+      "T-007"
+    ],
+    "blocked_by": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-004"
+    ]
   },
   {
     "id": "T-012",
@@ -113,8 +161,15 @@
     "title": "Hardening: rate limit, auth panel, backups, alertas",
     "status": "ready",
     "branch": "task/T-012",
-    "depends_on": ["T-010", "T-011"],
-    "blocked_by": ["REQ-001", "REQ-002", "REQ-003"]
+    "depends_on": [
+      "T-010",
+      "T-011"
+    ],
+    "blocked_by": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003"
+    ]
   },
   {
     "id": "T-013",
@@ -122,7 +177,9 @@
     "title": "Run recorder: DB tables + API endpoints + wrapper scripts",
     "status": "done",
     "branch": "main",
-    "depends_on": ["T-000"],
+    "depends_on": [
+      "T-000"
+    ],
     "blocked_by": []
   },
   {
@@ -131,7 +188,20 @@
     "title": "Panel de runs: lista /runs + detalle /runs/:id",
     "status": "done",
     "branch": "main",
-    "depends_on": ["T-013"],
+    "depends_on": [
+      "T-013"
+    ],
+    "blocked_by": []
+  },
+  {
+    "id": "T-015",
+    "phase": 0,
+    "title": "Bridge GPT-Claude: compose prompt, apply directives, inbox panel (requests/directives/tasks)",
+    "status": "done",
+    "branch": "main",
+    "depends_on": [
+      "T-014"
+    ],
     "blocked_by": []
   }
 ]

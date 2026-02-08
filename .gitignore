@@ -30,9 +30,11 @@ pnpm-debug.log*
 # Testing
 coverage/
 
-# Reports (generados por run_agent y daily_digest)
+# Reports (generados por scripts)
 reports/runs/*.md
 reports/daily.md
+reports/gpt/prompts/*.md
+reports/gpt/directives/*.json
 
 # Temp
 .tmp/

@@ -158,6 +158,62 @@ vercel rollback
 # Lee de DB si hay creds, sino de reports/runs/*.md
 ```
 
+## Flujo Orquestador (GPT → Claude)
+
+El loop completo del sistema:
+
+```
+Humano ──▶ compose_gpt_prompt.sh ──▶ Prompt para GPT
+                                         │
+GPT responde con directivas JSON ◀───────┘
+         │
+         ▼
+apply_gpt_directives.sh ──▶ DIRECTIVES_INBOX.json + TASKS.json
+         │
+Claude toma tasks READY ◀──┘
+         │
+         ▼
+run_agent.sh ──▶ Ejecuta + registra run
+         │
+Panel muestra resultado ◀──┘
+```
+
+### 1. Generar prompt para GPT
+
+```bash
+./scripts/compose_gpt_prompt.sh
+# Output: reports/gpt/prompts/<timestamp>.md
+# Copiar contenido y pegar en GPT
+```
+
+### 2. Aplicar directivas de GPT
+
+```bash
+# GPT responde con JSON. Guardar en:
+# reports/gpt/directives/incoming.json
+
+# Aplicar (NO ejecuta nada, solo crea tasks):
+./scripts/apply_gpt_directives.sh reports/gpt/directives/incoming.json
+
+# Resultado: directivas en DIRECTIVES_INBOX.json, tasks en TASKS.json
+```
+
+### 3. Claude ejecuta tasks
+
+```bash
+# Claude toma la siguiente task READY y ejecuta:
+./scripts/run_agent.sh T-XXX <comando>
+```
+
+### 4. Humano verifica en panel
+
+```
+http://localhost:3000/#/runs        → ver ejecuciones
+http://localhost:3000/#/tasks       → ver/cambiar estado de tasks
+http://localhost:3000/#/directives  → ver/aprobar/rechazar directivas
+http://localhost:3000/#/requests    → marcar credentials como provided
+```
+
 ## Troubleshooting
 
 ### API no responde

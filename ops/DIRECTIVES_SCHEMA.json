@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Elruso Directive",
+  "description": "Formato estricto para directivas del orquestador (GPT → Claude)",
+  "type": "object",
+  "required": ["id", "title", "body", "acceptance_criteria"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^DIR-[0-9]{3,}$",
+      "description": "ID único: DIR-001, DIR-002, etc."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601"
+    },
+    "source": {
+      "type": "string",
+      "enum": ["gpt", "human", "system"],
+      "description": "Quién generó la directiva"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PENDING", "APPLIED", "REJECTED"],
+      "default": "PENDING"
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 120,
+      "description": "Resumen corto de la directiva"
+    },
+    "body": {
+      "type": "string",
+      "description": "Descripción completa en markdown"
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Lista de criterios verificables para considerar la directiva aplicada"
+    },
+    "tasks_to_create": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "phase"],
+        "properties": {
+          "title": { "type": "string" },
+          "phase": { "type": "integer" },
+          "depends_on": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "blocked_by": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "description": "Tasks que se crean cuando la directiva se aplica"
+    },
+    "applied_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "applied_by": {
+      "type": ["string", "null"],
+      "description": "claude | human"
+    },
+    "rejection_reason": {
+      "type": ["string", "null"]
+    }
+  }
+}

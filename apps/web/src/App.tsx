@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
 import { RunsList } from "./pages/RunsList";
 import { RunDetail } from "./pages/RunDetail";
+import { RequestsList } from "./pages/RequestsList";
+import { DirectivesList } from "./pages/DirectivesList";
+import { TasksList } from "./pages/TasksList";
 
 function useHash() {
   const [hash, setHash] = useState(window.location.hash);
@@ -37,6 +40,13 @@ function StatusBadge() {
   );
 }
 
+const NAV_ITEMS = [
+  { path: "#/runs", label: "Runs", match: "#/runs" },
+  { path: "#/tasks", label: "Tasks", match: "#/tasks" },
+  { path: "#/directives", label: "Directivas", match: "#/directives" },
+  { path: "#/requests", label: "Requests", match: "#/requests" },
+];
+
 export function App() {
   const hash = useHash();
 
@@ -45,6 +55,12 @@ export function App() {
   let page: React.ReactNode;
   if (runDetailMatch) {
     page = <RunDetail runId={runDetailMatch[1]} />;
+  } else if (hash === "#/requests") {
+    page = <RequestsList />;
+  } else if (hash === "#/directives") {
+    page = <DirectivesList />;
+  } else if (hash === "#/tasks") {
+    page = <TasksList />;
   } else {
     page = <RunsList />;
   }
@@ -56,14 +72,19 @@ export function App() {
           <a href="#/runs" className="text-lg font-bold tracking-tight hover:text-gray-300">
             Elruso
           </a>
-          <a
-            href="#/runs"
-            className={`text-sm hover:text-white ${
-              hash.startsWith("#/runs") || hash === "" ? "text-white" : "text-gray-500"
-            }`}
-          >
-            Runs
-          </a>
+          {NAV_ITEMS.map((item) => (
+            <a
+              key={item.path}
+              href={item.path}
+              className={`text-sm hover:text-white transition-colors ${
+                hash.startsWith(item.match) || (hash === "" && item.match === "#/runs")
+                  ? "text-white"
+                  : "text-gray-500"
+              }`}
+            >
+              {item.label}
+            </a>
+          ))}
         </div>
         <StatusBadge />
       </nav>
