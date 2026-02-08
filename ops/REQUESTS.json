@@ -1,0 +1,42 @@
+[
+  {
+    "id": "REQ-001",
+    "service": "supabase",
+    "type": "credentials",
+    "scopes": ["SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"],
+    "purpose": "Conexión a base de datos PostgreSQL para API y Worker",
+    "where_to_set": "apps/api/.env, apps/worker/.env, Render env vars, GitHub Secrets",
+    "validation_cmd": "curl -s $SUPABASE_URL/rest/v1/ -H 'apikey: $SUPABASE_ANON_KEY' | head -1",
+    "status": "WAITING"
+  },
+  {
+    "id": "REQ-002",
+    "service": "render",
+    "type": "api_token",
+    "scopes": ["RENDER_API_TOKEN"],
+    "purpose": "Deploy automático de API y Worker a Render desde CI y scripts",
+    "where_to_set": "GitHub Secrets (RENDER_API_TOKEN), .env local para scripts",
+    "validation_cmd": "curl -s -H 'Authorization: Bearer $RENDER_API_TOKEN' https://api.render.com/v1/owners | jq '.length'",
+    "status": "WAITING"
+  },
+  {
+    "id": "REQ-003",
+    "service": "vercel",
+    "type": "api_token",
+    "scopes": ["VERCEL_TOKEN"],
+    "purpose": "Deploy automático del panel web a Vercel desde CI y scripts",
+    "where_to_set": "GitHub Secrets (VERCEL_TOKEN), .env local para scripts",
+    "validation_cmd": "curl -s -H 'Authorization: Bearer $VERCEL_TOKEN' https://api.vercel.com/v2/user | jq '.user.username'",
+    "status": "WAITING"
+  },
+  {
+    "id": "REQ-004",
+    "service": "github",
+    "type": "repository",
+    "scopes": ["REPO_URL"],
+    "purpose": "Repositorio remoto para push, PRs y CI/CD",
+    "where_to_set": "git remote add origin <url>",
+    "validation_cmd": "git remote -v",
+    "status": "WAITING"
+  }
+]

@@ -1,0 +1,119 @@
+[
+  {
+    "id": "T-000",
+    "phase": 0,
+    "title": "Bootstrap monorepo + /ops + scripts + CI",
+    "status": "done",
+    "branch": "task/T-000",
+    "depends_on": [],
+    "blocked_by": []
+  },
+  {
+    "id": "T-001",
+    "phase": 1,
+    "title": "Migraciones DB: tablas stock_entries, stock_movements",
+    "status": "ready",
+    "branch": "task/T-001",
+    "depends_on": ["T-000"],
+    "blocked_by": ["REQ-001"]
+  },
+  {
+    "id": "T-002",
+    "phase": 1,
+    "title": "Stock engine: reservar, liberar, ajustar, reconciliar",
+    "status": "ready",
+    "branch": "task/T-002",
+    "depends_on": ["T-001"],
+    "blocked_by": ["REQ-001"]
+  },
+  {
+    "id": "T-003",
+    "phase": 1,
+    "title": "API endpoints stock: GET /stock, POST /stock/movements",
+    "status": "ready",
+    "branch": "task/T-003",
+    "depends_on": ["T-002"],
+    "blocked_by": ["REQ-001"]
+  },
+  {
+    "id": "T-004",
+    "phase": 2,
+    "title": "OAuth Tiendanube: flow completo + almacenamiento token",
+    "status": "ready",
+    "branch": "task/T-004",
+    "depends_on": ["T-003"],
+    "blocked_by": ["REQ-001"]
+  },
+  {
+    "id": "T-005",
+    "phase": 2,
+    "title": "Webhooks Tiendanube: recepción, idempotencia, procesamiento",
+    "status": "ready",
+    "branch": "task/T-005",
+    "depends_on": ["T-004"],
+    "blocked_by": ["REQ-001"]
+  },
+  {
+    "id": "T-006",
+    "phase": 2,
+    "title": "Sync stock: push a Tiendanube via API",
+    "status": "ready",
+    "branch": "task/T-006",
+    "depends_on": ["T-005"],
+    "blocked_by": ["REQ-001"]
+  },
+  {
+    "id": "T-007",
+    "phase": 3,
+    "title": "Worker: polling de tasks, ejecución, retry logic",
+    "status": "ready",
+    "branch": "task/T-007",
+    "depends_on": ["T-003"],
+    "blocked_by": ["REQ-001"]
+  },
+  {
+    "id": "T-008",
+    "phase": 3,
+    "title": "Worker: job de reconciliación automática",
+    "status": "ready",
+    "branch": "task/T-008",
+    "depends_on": ["T-007"],
+    "blocked_by": ["REQ-001"]
+  },
+  {
+    "id": "T-009",
+    "phase": 4,
+    "title": "Frontend: panel de Requests y Tasks",
+    "status": "ready",
+    "branch": "task/T-009",
+    "depends_on": ["T-003"],
+    "blocked_by": ["REQ-001", "REQ-003"]
+  },
+  {
+    "id": "T-010",
+    "phase": 4,
+    "title": "Frontend: panel de Logs y movimientos de stock",
+    "status": "ready",
+    "branch": "task/T-010",
+    "depends_on": ["T-009"],
+    "blocked_by": ["REQ-001", "REQ-003"]
+  },
+  {
+    "id": "T-011",
+    "phase": 5,
+    "title": "Runner 24/7: loop automático TASKS → ejecución → PRs → staging",
+    "status": "ready",
+    "branch": "task/T-011",
+    "depends_on": ["T-007"],
+    "blocked_by": ["REQ-001", "REQ-002", "REQ-004"]
+  },
+  {
+    "id": "T-012",
+    "phase": 6,
+    "title": "Hardening: rate limit, auth panel, backups, alertas",
+    "status": "ready",
+    "branch": "task/T-012",
+    "depends_on": ["T-010", "T-011"],
+    "blocked_by": ["REQ-001", "REQ-002", "REQ-003"]
+  }
+]
