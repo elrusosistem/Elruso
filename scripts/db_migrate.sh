@@ -3,6 +3,11 @@ set -euo pipefail
 
 echo "=== Elruso DB Migrate ==="
 
+# ─── Cargar env vars desde vault local ────────────────────────────────
+SCRIPT_DIR_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./load_vault_env.sh
+source "$SCRIPT_DIR_SELF/load_vault_env.sh"
+
 # ─── Validar DATABASE_URL ─────────────────────────────────────────────
 if [ -z "${DATABASE_URL:-}" ]; then
   echo "Error: DATABASE_URL no configurada."

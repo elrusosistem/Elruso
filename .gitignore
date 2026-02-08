@@ -10,6 +10,11 @@ dist/
 .env
 .env.local
 .env.*.local
+.env.runtime
+
+# Secrets vault (valores de REQUESTS, nunca commitear)
+ops/.secrets/*
+!ops/.secrets/.gitkeep
 
 # IDE
 .idea/

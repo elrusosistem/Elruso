@@ -3,6 +3,7 @@ import type { ApiResponse, OpsRequest } from "@elruso/types";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { tryGetDb } from "../db.js";
+import { saveRequestValues, hasRequestValues, generateEnvRuntime } from "../vault.js";
 
 // ─── File-backed helpers (fallback sin DB) ──────────────────────────
 const OPS_DIR = resolve(import.meta.dirname, "../../../../ops");
@@ -104,6 +105,50 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       }
       writeJson("REQUESTS.json", all);
       return { ok: true, data: all[idx] };
+    }
+  );
+
+  // ─── VAULT (secrets locales) ─────────────────────────────────────
+
+  app.post<{ Params: { id: string }; Body: { values: Record<string, string> } }>(
+    "/ops/requests/:id/value",
+    async (request): Promise<ApiResponse<{ saved: boolean; env_runtime: string }>> => {
+      const { id } = request.params;
+      const { values } = request.body as { values: Record<string, string> };
+
+      if (!values || Object.keys(values).length === 0) {
+        return { ok: false, error: "Se requiere al menos un valor" };
+      }
+
+      saveRequestValues(id, values);
+
+      // Marcar request como PROVIDED
+      const db = tryGetDb();
+      if (db) {
+        await db
+          .from("ops_requests")
+          .update({ status: "PROVIDED", provided_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq("id", id);
+      } else {
+        const all = readJson<OpsRequest[]>("REQUESTS.json");
+        const idx = all.findIndex((r) => r.id === id);
+        if (idx !== -1) {
+          all[idx].status = "PROVIDED";
+          all[idx].provided_at = new Date().toISOString();
+          writeJson("REQUESTS.json", all);
+        }
+      }
+
+      const envPath = generateEnvRuntime();
+      return { ok: true, data: { saved: true, env_runtime: envPath } };
+    }
+  );
+
+  app.get<{ Params: { id: string } }>(
+    "/ops/requests/:id/value/status",
+    async (request): Promise<ApiResponse<{ has_value: boolean }>> => {
+      const { id } = request.params;
+      return { ok: true, data: { has_value: hasRequestValues(id) } };
     }
   );
 

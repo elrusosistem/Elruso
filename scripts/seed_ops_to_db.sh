@@ -8,6 +8,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 OPS_DIR="$ROOT_DIR/ops"
 
+# ─── Cargar env vars desde vault local ────────────────────────────────
+# shellcheck source=./load_vault_env.sh
+source "$SCRIPT_DIR/load_vault_env.sh"
+
 # ─── Validaciones ────────────────────────────────────────────────────
 if [ -z "${DATABASE_URL:-}" ]; then
   echo "ERROR: DATABASE_URL no configurada. Ver ops/REQUESTS.json (REQ-005)"
