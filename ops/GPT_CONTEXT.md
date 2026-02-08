@@ -135,6 +135,27 @@ Panel muestra resultado ◀──┘
 
 ---
 
+## Repositorio
+
+- **URL**: https://github.com/abisaieg/Elruso (private)
+- **Branch principal**: `main`
+
+---
+
+## Scripts de Mantenimiento
+
+| Script | Propósito |
+|---|---|
+| `scripts/update_state.sh` | Regenera `ops/STATE.md` con info live (HEAD, requests, tasks) |
+| `scripts/ops_sync.sh [export\|import]` | Sincroniza ops JSON ↔ DB. Sin creds, sale ok (file-backed) |
+| `scripts/seed_ops_to_db.sh` | Upsert idempotente ops/*.json → tablas ops_* |
+| `scripts/db_migrate.sh` | Ejecuta migraciones SQL pendientes con psql |
+| `scripts/run_agent.sh <TASK_ID>` | Ejecuta y registra un run |
+| `scripts/compose_gpt_prompt.sh` | Genera prompt contextual para GPT |
+| `scripts/apply_gpt_directives.sh` | Aplica directivas GPT → tasks |
+
+---
+
 ## Archivos Clave (leer siempre)
 
 | Archivo | Propósito |

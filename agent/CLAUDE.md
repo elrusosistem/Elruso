@@ -11,9 +11,10 @@ Leer estos archivos antes de hacer cualquier cosa:
 
 ## Al Terminar Cualquier Cambio (OBLIGATORIO)
 
-1. Actualizar `/ops/STATE.md` con: nuevo HEAD, paso actual, cambios en requests/tasks
-2. Actualizar `/ops/TASKS.json` si cambió el estado de alguna task
-3. Generar RUN SUMMARY en `reports/runs/<timestamp>_<TASK_ID>.md` (o usar `./scripts/run_agent.sh`)
+1. Ejecutar `./scripts/update_state.sh` — regenera `/ops/STATE.md` automáticamente
+2. Ejecutar `./scripts/ops_sync.sh` — sincroniza ops JSON ↔ DB (si hay creds, export DB→JSON; sin creds, sale ok)
+3. Actualizar `/ops/TASKS.json` si cambió el estado de alguna task
+4. Generar RUN SUMMARY en `reports/runs/<timestamp>_<TASK_ID>.md` (o usar `./scripts/run_agent.sh`)
 
 ---
 

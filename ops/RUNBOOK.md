@@ -10,18 +10,76 @@
   - macOS: `brew install libpq && brew link --force libpq`
   - Ubuntu: `sudo apt-get install postgresql-client`
 
-## Setup Inicial
+## Bootstrap Completo (desde cero)
 
 ```bash
-# Clonar e instalar
-git clone <repo-url> && cd elruso
-node -v   # Verificar: debe ser v22.x.x
+# 1. Clonar
+git clone https://github.com/abisaieg/Elruso.git && cd Elruso
+
+# 2. Verificar requisitos
+node -v    # >= 22.x.x
+pnpm -v    # >= 9.x.x
+psql --version  # necesario para migraciones (brew install libpq && brew link --force libpq)
+jq --version    # necesario para scripts ops (brew install jq)
+
+# 3. Instalar dependencias
 pnpm install
 
-# Copiar variables de entorno
+# 4. Configurar env vars
 cp .env.example apps/api/.env
 cp .env.example apps/worker/.env
-# Editar con valores reales (incluir DATABASE_URL)
+# Editar con valores reales: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL
+
+# 5. Migraciones (requiere DATABASE_URL + psql)
+export DATABASE_URL="postgresql://postgres.[ref]:[pass]@aws-0-[region].pooler.supabase.com:6543/postgres?sslmode=require"
+./scripts/db_migrate.sh
+
+# 6. Seed ops JSON → DB
+./scripts/seed_ops_to_db.sh
+
+# 7. Verificar
+pnpm -r build            # Build todo
+pnpm -r test             # Tests todo
+./scripts/update_state.sh  # Regenerar STATE.md
+./scripts/ops_sync.sh      # Verificar modo (DB o file-backed)
+
+# 8. Dev
+pnpm dev:api    # API en :3001
+pnpm dev:web    # Panel en :3000
+```
+
+### Validaciones rápidas
+
+```bash
+# Git remoto
+git remote -v  # origin → https://github.com/abisaieg/Elruso.git
+
+# API health
+curl http://localhost:3001/health  # {"ok":true,"data":{"status":"healthy"}}
+
+# Ops endpoints (con API corriendo)
+curl http://localhost:3001/ops/requests   # lista requests
+curl http://localhost:3001/ops/tasks      # lista tasks
+curl http://localhost:3001/ops/directives # lista directives
+
+# DB connectivity (requiere DATABASE_URL)
+psql $DATABASE_URL -c 'SELECT 1;'
+
+# Panel rutas
+# http://localhost:3000/#/runs
+# http://localhost:3000/#/tasks
+# http://localhost:3000/#/requests
+# http://localhost:3000/#/directives
+```
+
+## Setup Inicial (versión corta)
+
+```bash
+git clone https://github.com/abisaieg/Elruso.git && cd Elruso
+pnpm install
+cp .env.example apps/api/.env
+cp .env.example apps/worker/.env
+# Editar .env con valores reales
 ```
 
 ## Desarrollo Local
@@ -236,6 +294,36 @@ http://localhost:3000/#/tasks       → ver/cambiar estado de tasks
 http://localhost:3000/#/directives  → ver/aprobar/rechazar directivas
 http://localhost:3000/#/requests    → marcar credentials como provided
 ```
+
+## Scripts de Mantenimiento
+
+```bash
+# Actualizar ops/STATE.md con info live (HEAD, branch, requests, tasks)
+./scripts/update_state.sh
+
+# Sincronizar ops JSON ↔ DB
+./scripts/ops_sync.sh           # export: DB → ops/*.json (default)
+./scripts/ops_sync.sh import    # import: ops/*.json → DB (= seed)
+./scripts/ops_sync.sh export    # export explícito
+
+# Sin DB creds, ops_sync.sh sale ok con mensaje informativo (modo file-backed)
+```
+
+### Protocolo al finalizar un run
+
+```bash
+# 1. Commit cambios
+git add <archivos> && git commit -m "feat: ..."
+
+# 2. Actualizar estado
+./scripts/update_state.sh
+./scripts/ops_sync.sh
+
+# 3. Push
+git push origin main
+```
+
+---
 
 ## Troubleshooting
 
