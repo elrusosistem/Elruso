@@ -1,5 +1,22 @@
 # CLAUDE.md - Elruso Stock System
 
+## Al Comenzar (OBLIGATORIO)
+
+Leer estos archivos antes de hacer cualquier cosa:
+
+1. `/ops/GPT_CONTEXT.md` — canon permanente del proyecto (roles, reglas, stack, roadmap)
+2. `/ops/STATE.md` — estado vivo (HEAD, paso actual, blockers, próximo objetivo)
+3. `/ops/TASKS.json` — backlog completo con dependencias y estados
+4. `/ops/REQUESTS.json` — credentials/tokens pendientes (status WAITING = bloqueante)
+
+## Al Terminar Cualquier Cambio (OBLIGATORIO)
+
+1. Actualizar `/ops/STATE.md` con: nuevo HEAD, paso actual, cambios en requests/tasks
+2. Actualizar `/ops/TASKS.json` si cambió el estado de alguna task
+3. Generar RUN SUMMARY en `reports/runs/<timestamp>_<TASK_ID>.md` (o usar `./scripts/run_agent.sh`)
+
+---
+
 ## Proyecto
 Sistema de gestión de stock con integración Tiendanube. Monorepo con pnpm.
 
