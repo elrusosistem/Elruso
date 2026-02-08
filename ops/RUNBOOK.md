@@ -1,16 +1,27 @@
 # Runbook - Elruso
 
+## Requisitos
+
+- **Node.js 22 LTS** (`node -v` → `v22.x.x`)
+  - Usar `.nvmrc` o `.tool-versions` para fijar la versión
+  - `nvm use` o `asdf install` según tu gestor
+- **pnpm >= 9** (`pnpm -v`)
+- **psql** (cliente PostgreSQL, para migraciones)
+  - macOS: `brew install libpq && brew link --force libpq`
+  - Ubuntu: `sudo apt-get install postgresql-client`
+
 ## Setup Inicial
 
 ```bash
 # Clonar e instalar
 git clone <repo-url> && cd elruso
+node -v   # Verificar: debe ser v22.x.x
 pnpm install
 
 # Copiar variables de entorno
 cp .env.example apps/api/.env
 cp .env.example apps/worker/.env
-# Editar con valores reales
+# Editar con valores reales (incluir DATABASE_URL)
 ```
 
 ## Desarrollo Local
@@ -60,9 +71,30 @@ pnpm build:api
 
 ## Migraciones DB
 
+Las migraciones se ejecutan con `psql` directamente contra la base de datos Supabase.
+
 ```bash
+# Requiere DATABASE_URL (connection string PostgreSQL)
+# Obtener de: Supabase Dashboard > Project Settings > Database > Connection string (URI)
+export DATABASE_URL="postgresql://postgres.[ref]:[pass]@aws-0-[region].pooler.supabase.com:6543/postgres"
+
+# Ejecutar migraciones pendientes
 ./scripts/db_migrate.sh
-# Requiere SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY
+
+# El script:
+# 1. Verifica conectividad con psql
+# 2. Crea tabla _migrations (control de versiones, idempotente)
+# 3. Ejecuta cada db/migrations/*.sql pendiente dentro de una transacción
+# 4. Registra cada migración aplicada en _migrations
+# 5. Si una falla, aborta (la transacción hace rollback)
+```
+
+### Crear nueva migración
+
+```bash
+# Formato: NNN_descripcion.sql (orden lexicográfico)
+touch db/migrations/001_create_stock_tables.sql
+# Escribir SQL, luego ejecutar ./scripts/db_migrate.sh
 ```
 
 ## Deploy Staging

@@ -24,3 +24,13 @@
 - **Fecha**: 2026-02-08
 - **Decisión**: CI deploya a staging en cada merge a main. Prod solo via script manual con confirmación.
 - **Razón**: Staging para validar rápido, prod requiere aprobación explícita del operador.
+
+## DEC-006: Node 22 LTS fijo
+- **Fecha**: 2026-02-08
+- **Decisión**: Fijar Node 22 LTS en dev (.nvmrc, .tool-versions), CI (setup-node) y prod (engines en package.json).
+- **Razón**: Node 22 es la versión LTS activa con soporte hasta abril 2027. Evita incompatibilidades entre entornos y da acceso a APIs estables (fetch nativo, test runner, etc.) sin features experimentales de Node 23+/25+.
+
+## DEC-007: Migraciones con psql directo (no Supabase CLI)
+- **Fecha**: 2026-02-08
+- **Decisión**: Usar `psql` contra `DATABASE_URL` para ejecutar migraciones SQL, con tabla `_migrations` como control de versiones. No usar Supabase CLI ni `rest/v1/rpc/exec_sql`.
+- **Razón**: psql es estándar PostgreSQL, funciona en cualquier entorno (local, CI, Render), no depende de servicios propietarios, ejecuta dentro de transacciones reales, y es 100% auditable. Supabase CLI agrega complejidad innecesaria (Docker, config extra) para lo que necesitamos. El endpoint `rpc/exec_sql` no es un endpoint real de Supabase y no funciona.

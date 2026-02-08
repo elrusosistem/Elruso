@@ -38,5 +38,15 @@
     "where_to_set": "git remote add origin <url>",
     "validation_cmd": "git remote -v",
     "status": "WAITING"
+  },
+  {
+    "id": "REQ-005",
+    "service": "supabase",
+    "type": "connection_string",
+    "scopes": ["DATABASE_URL"],
+    "purpose": "Connection string PostgreSQL directa para migraciones con psql",
+    "where_to_set": ".env (root y apps), Render env vars, GitHub Secrets",
+    "validation_cmd": "psql $DATABASE_URL -c 'SELECT 1;'",
+    "status": "WAITING"
   }
 ]

@@ -16,6 +16,7 @@
 | `WEB_URL` | API | Sí | URL del panel web (para CORS) |
 | `RENDER_API_TOKEN` | CI/CD | Sí | Token de API de Render |
 | `VERCEL_TOKEN` | CI/CD | Sí | Token de Vercel |
+| `DATABASE_URL` | Migraciones | Sí | Connection string PostgreSQL directa para psql |
 | `POLL_INTERVAL_MS` | Worker | No (default 5000) | Intervalo de polling del worker |
 
 ## Dónde configurar
