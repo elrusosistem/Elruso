@@ -1,14 +1,14 @@
 # STATE.md — Estado Vivo del Proyecto
 
-> Actualizar este archivo al terminar cada cambio significativo.
-> Última actualización: 2026-02-08
+> Generado automáticamente por scripts/update_state.sh
+> Última actualización: 2026-02-08T23:11:02Z
 
 ---
 
 ## HEAD
 
 ```
-1d80623 chore: add canon context + live state handoff
+bfb8dfa feat: git remote + scripts mantenimiento + bootstrap reproducible
 ```
 
 **Branch**: `main`
@@ -19,11 +19,12 @@
 
 | Paso | Descripción | Commits |
 |---|---|---|
-| 0 | Bootstrap monorepo + ops + scripts + CI | `4fc4be4` |
-| 0 | Fix Node 22 LTS + migraciones psql | `7256c82` |
-| 0 | Run recorder + panel de runs + security fix | `2e9c1d7` |
-| 0 | Bridge GPT↔Claude + inbox + panel completo | `a0032ee` |
-| 0 | Canon context + live state handoff | `1d80623` |
+| 0 | chore: bootstrap monorepo Elruso - Fase 0 | `4fc4be4` |
+| 0 | chore: fijar Node 22 LTS y reescribir migraciones DB con psql | `7256c82` |
+| 0 | feat: run recorder + panel de runs + security fix migraciones | `2e9c1d7` |
+| 0 | feat: bridge GPT↔Claude + inbox humano + panel requests/directives/tasks | `a0032ee` |
+| 0 | chore: add canon context + live state handoff | `1d80623` |
+| 0 | feat: supabase db-first ops (requests/tasks/directives) | `2937684` |
 
 ---
 
@@ -35,33 +36,30 @@
 
 ## Requests WAITING
 
-| ID | Servicio | Qué falta | Bloquea |
+| ID | Servicio | Qué falta | Propósito |
 |---|---|---|---|
-| REQ-001 | Supabase | SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY | T-001 a T-012 (todo) |
-| REQ-002 | Render | RENDER_API_TOKEN | T-011, T-012 |
-| REQ-003 | Vercel | VERCEL_TOKEN | T-009, T-010, T-012 |
-| REQ-004 | GitHub | REPO_URL (remote origin) | T-011 |
-| REQ-005 | Supabase | DATABASE_URL (connection string psql) | Migraciones reales |
+| REQ-001 | supabase | SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY | Conexión a base de datos PostgreSQL para API y Worker |
+| REQ-002 | render | RENDER_API_TOKEN | Deploy automático de API y Worker a Render desde CI y scripts |
+| REQ-003 | vercel | VERCEL_TOKEN | Deploy automático del panel web a Vercel desde CI y scripts |
+| REQ-005 | supabase | DATABASE_URL | Connection string PostgreSQL directa para migraciones con psql |
+| REQ-006 | local | psql | Cliente PostgreSQL para ejecutar migraciones y seed |
 
 ---
 
 ## Próximo Objetivo Inmediato
 
-1. **Humano provee REQ-001 + REQ-005** → desbloquea Fase 1
-2. **T-001**: Ejecutar migraciones DB (stock_entries, stock_movements)
-3. **T-002**: Implementar stock engine (reservar, liberar, ajustar, reconciliar)
+1. **T-001: Migraciones DB: tablas stock_entries, stock_movements**
 
 ---
 
 ## Último Run Report
 
-No hay runs registrados aún (no hay DB credentials para persistir, ni se han generado reports locales).
+No hay runs registrados aún
 
 ---
 
 ## Tasks por Estado
 
 - **done**: T-000, T-013, T-014, T-015
-- **ready**: T-001 a T-012 (bloqueadas por REQ-001+)
+- **ready**: T-001, T-002, T-003, T-004, T-005, T-006, T-007, T-008, T-009, T-010, T-011, T-012
 - **running**: ninguna
-- **failed**: ninguna
