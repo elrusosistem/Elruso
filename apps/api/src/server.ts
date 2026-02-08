@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import type { ApiResponse } from "@elruso/types";
+import { runsRoutes } from "./routes/runs.js";
 
 const app = Fastify({ logger: true });
 
@@ -13,9 +14,12 @@ app.get("/health", async (): Promise<ApiResponse<{ status: string }>> => {
 app.get("/", async (): Promise<ApiResponse<{ service: string; version: string }>> => {
   return {
     ok: true,
-    data: { service: "elruso-api", version: "0.1.0" },
+    data: { service: "elruso-api", version: "0.2.0" },
   };
 });
+
+// ─── Routes ──────────────────────────────────────────────────────────
+await app.register(runsRoutes);
 
 const port = Number(process.env.PORT) || 3001;
 const host = process.env.HOST || "0.0.0.0";

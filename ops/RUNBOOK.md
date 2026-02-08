@@ -76,7 +76,7 @@ Las migraciones se ejecutan con `psql` directamente contra la base de datos Supa
 ```bash
 # Requiere DATABASE_URL (connection string PostgreSQL)
 # Obtener de: Supabase Dashboard > Project Settings > Database > Connection string (URI)
-export DATABASE_URL="postgresql://postgres.[ref]:[pass]@aws-0-[region].pooler.supabase.com:6543/postgres"
+export DATABASE_URL="postgresql://postgres.[ref]:[pass]@aws-0-[region].pooler.supabase.com:6543/postgres?sslmode=require"
 
 # Ejecutar migraciones pendientes
 ./scripts/db_migrate.sh
@@ -125,6 +125,37 @@ render rollback --service <service-id>
 
 # Vercel: rollback al deployment anterior
 vercel rollback
+```
+
+## Run Agent (registro de ejecuciones)
+
+```bash
+# Ejecutar un comando y registrar la ejecución completa
+./scripts/run_agent.sh <TASK_ID> [comando...]
+
+# Ejemplo: registrar un build
+./scripts/run_agent.sh T-013 pnpm -r build
+
+# Solo registrar sin comando (captura estado git)
+./scripts/run_agent.sh T-TEST
+
+# El script:
+# 1. Captura estado git pre (branch, commit)
+# 2. Ejecuta el comando (si se pasa)
+# 3. Captura estado git post + diff --stat
+# 4. Genera report en reports/runs/<timestamp>_<TASK_ID>.md
+# 5. Si DATABASE_URL está configurada, persiste en DB (run_logs, run_steps, file_changes)
+# 6. Si no hay DB creds, genera solo el archivo (status: blocked)
+```
+
+## Daily Digest
+
+```bash
+# Generar resumen de últimas 24h
+./scripts/daily_digest.sh
+
+# Output: reports/daily.md
+# Lee de DB si hay creds, sino de reports/runs/*.md
 ```
 
 ## Troubleshooting

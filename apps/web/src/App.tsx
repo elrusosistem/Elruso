@@ -1,8 +1,20 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
+import { RunsList } from "./pages/RunsList";
+import { RunDetail } from "./pages/RunDetail";
 
-export function App() {
-  const [status, setStatus] = useState<string>("loading...");
+function useHash() {
+  const [hash, setHash] = useState(window.location.hash);
+  useEffect(() => {
+    const onHashChange = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+  return hash;
+}
+
+function StatusBadge() {
+  const [status, setStatus] = useState<string>("...");
 
   useEffect(() => {
     fetch("/api/health")
@@ -14,19 +26,48 @@ export function App() {
   }, []);
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center space-y-4">
-        <h1 className="text-4xl font-bold tracking-tight">Elruso</h1>
-        <p className="text-lg text-gray-400">Control Center</p>
-        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gray-800 text-sm">
-          <span
-            className={`w-2 h-2 rounded-full ${
-              status === "healthy" ? "bg-green-500" : "bg-red-500"
+    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-800 text-xs">
+      <span
+        className={`w-2 h-2 rounded-full ${
+          status === "healthy" ? "bg-green-500" : "bg-red-500"
+        }`}
+      />
+      API: {status}
+    </div>
+  );
+}
+
+export function App() {
+  const hash = useHash();
+
+  const runDetailMatch = hash.match(/^#\/runs\/(.+)$/);
+
+  let page: React.ReactNode;
+  if (runDetailMatch) {
+    page = <RunDetail runId={runDetailMatch[1]} />;
+  } else {
+    page = <RunsList />;
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white">
+      <nav className="border-b border-gray-800 px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-6">
+          <a href="#/runs" className="text-lg font-bold tracking-tight hover:text-gray-300">
+            Elruso
+          </a>
+          <a
+            href="#/runs"
+            className={`text-sm hover:text-white ${
+              hash.startsWith("#/runs") || hash === "" ? "text-white" : "text-gray-500"
             }`}
-          />
-          API: {status}
+          >
+            Runs
+          </a>
         </div>
-      </div>
+        <StatusBadge />
+      </nav>
+      {page}
     </div>
   );
 }

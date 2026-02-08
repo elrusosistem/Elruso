@@ -30,6 +30,10 @@ pnpm-debug.log*
 # Testing
 coverage/
 
+# Reports (generados por run_agent y daily_digest)
+reports/runs/*.md
+reports/daily.md
+
 # Temp
 .tmp/
 tmp/

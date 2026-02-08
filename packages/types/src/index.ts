@@ -88,6 +88,47 @@ export interface OpsRequest {
   provided_at?: string;
 }
 
+// ─── Run Recorder ────────────────────────────────────────────────────
+export type RunStatus = "running" | "done" | "failed" | "blocked";
+
+export interface RunLog {
+  id: string;
+  started_at: string;
+  finished_at: string | null;
+  task_id: string;
+  status: RunStatus;
+  branch: string | null;
+  commit_hash: string | null;
+  pr_url: string | null;
+  summary: string | null;
+  artifact_path: string | null;
+}
+
+export interface RunStep {
+  id: string;
+  run_id: string;
+  step_name: string;
+  cmd: string | null;
+  exit_code: number | null;
+  output_excerpt: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export type FileChangeType = "added" | "modified" | "deleted" | "renamed";
+
+export interface FileChange {
+  id: string;
+  run_id: string;
+  path: string;
+  change_type: FileChangeType;
+}
+
+export interface RunDetail extends RunLog {
+  steps: RunStep[];
+  file_changes: FileChange[];
+}
+
 // ─── API responses ───────────────────────────────────────────────────
 export interface ApiResponse<T = unknown> {
   ok: boolean;

@@ -8,7 +8,7 @@ if [ -z "${DATABASE_URL:-}" ]; then
   echo "Error: DATABASE_URL no configurada."
   echo ""
   echo "Obtener de Supabase Dashboard > Project Settings > Database > Connection string (URI)."
-  echo "Formato: postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres"
+  echo "Formato: postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres?sslmode=require"
   echo ""
   echo "Verificar /ops/REQUESTS.json (REQ-005)"
   exit 1
@@ -61,8 +61,16 @@ for migration in "$MIGRATIONS_DIR"/*.sql; do
   [ -f "$migration" ] || continue
   FILENAME="$(basename "$migration")"
 
-  # Verificar si ya fue aplicada
-  ALREADY_APPLIED=$(psql "$DATABASE_URL" -t -A -c "SELECT COUNT(*) FROM _migrations WHERE filename = '$FILENAME';")
+  # Sanitizar filename: solo permite alfanuméricos, guiones, guiones bajos y puntos
+  if [[ ! "$FILENAME" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "ERROR: nombre de migración inválido: $FILENAME"
+    echo "Solo se permiten: letras, números, puntos, guiones y guiones bajos."
+    exit 1
+  fi
+
+  # Verificar si ya fue aplicada (usando variable psql para evitar inyección)
+  ALREADY_APPLIED=$(psql "$DATABASE_URL" -t -A -v "mig_filename=$FILENAME" \
+    -c "SELECT COUNT(*) FROM _migrations WHERE filename = :'mig_filename';")
 
   if [ "$ALREADY_APPLIED" -gt 0 ]; then
     echo "SKIP: $FILENAME (ya aplicada)"
@@ -73,8 +81,9 @@ for migration in "$MIGRATIONS_DIR"/*.sql; do
   # Ejecutar migración dentro de transacción
   echo "EXEC: $FILENAME"
   if psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -q -f "$migration"; then
-    # Registrar migración aplicada
-    psql "$DATABASE_URL" -q -c "INSERT INTO _migrations (filename) VALUES ('$FILENAME');"
+    # Registrar migración aplicada (usando variable psql)
+    psql "$DATABASE_URL" -q -v "mig_filename=$FILENAME" \
+      -c "INSERT INTO _migrations (filename) VALUES (:'mig_filename');"
     echo "  OK"
     APPLIED=$((APPLIED + 1))
   else
