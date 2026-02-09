@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import type { ApiResponse } from "@elruso/types";
 import { runsRoutes } from "./routes/runs.js";
 import { opsRoutes } from "./routes/ops.js";
+import { gptRoutes } from "./routes/gpt.js";
 
 const app = Fastify({ logger: true });
 
@@ -22,6 +23,7 @@ app.get("/", async (): Promise<ApiResponse<{ service: string; version: string }>
 // ─── Routes ──────────────────────────────────────────────────────────
 await app.register(runsRoutes);
 await app.register(opsRoutes);
+await app.register(gptRoutes);
 
 const port = Number(process.env.PORT) || 3001;
 const host = process.env.HOST || "0.0.0.0";
