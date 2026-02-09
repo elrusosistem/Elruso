@@ -11,7 +11,7 @@
   {
     "id": "T-013",
     "phase": 0,
-    "title": "Run recorder: DB tables + API endpoints + wrapper scripts",
+    "title": "Grabador de runs: tablas DB + endpoints API + scripts wrapper",
     "status": "done",
     "branch": "main",
     "depends_on": ["T-000"],
@@ -29,7 +29,7 @@
   {
     "id": "T-015",
     "phase": 0,
-    "title": "Bridge GPT-Claude: compose prompt, apply directives, inbox panel",
+    "title": "Puente GPT-Claude: compose prompt, apply directives, panel inbox",
     "status": "done",
     "branch": "main",
     "depends_on": ["T-014"],
@@ -38,7 +38,7 @@
   {
     "id": "T-016",
     "phase": 1,
-    "title": "Fixes infra: Render build, Vercel proxy, vault local, setup wizard",
+    "title": "Fixes infra: build Render, proxy Vercel, vault local, setup wizard",
     "status": "done",
     "branch": "main",
     "depends_on": ["T-015"],
@@ -92,7 +92,7 @@
   {
     "id": "T-030",
     "phase": 3,
-    "title": "Puente GPT: testear compose_gpt_prompt end-to-end",
+    "title": "Puente GPT: testear compose_gpt_prompt de punta a punta",
     "status": "ready",
     "branch": "task/T-030",
     "depends_on": ["T-023"],
@@ -101,7 +101,7 @@
   {
     "id": "T-031",
     "phase": 3,
-    "title": "Puente GPT: testear apply_directives end-to-end",
+    "title": "Puente GPT: testear apply_directives de punta a punta",
     "status": "ready",
     "branch": "task/T-031",
     "depends_on": ["T-030"],
@@ -110,7 +110,7 @@
   {
     "id": "T-032",
     "phase": 3,
-    "title": "Puente GPT: testear run_agent end-to-end (ejecuta + registra)",
+    "title": "Puente GPT: testear run_agent de punta a punta (ejecuta + registra)",
     "status": "ready",
     "branch": "task/T-032",
     "depends_on": ["T-031"],
@@ -191,7 +191,7 @@
   {
     "id": "T-062",
     "phase": 6,
-    "title": "Hardening: auditoria completa + SLA monitoring",
+    "title": "Hardening: auditoria completa + monitoreo SLA",
     "status": "ready",
     "branch": "task/T-062",
     "depends_on": ["T-060"],
