@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+*.tsbuildinfo
 .next/
 .vercel/
 
@@ -44,3 +45,5 @@ reports/gpt/directives/*.json
 # Temp
 .tmp/
 tmp/
+.vercel
+.env*.local
