@@ -3,7 +3,7 @@ import type { ApiResponse, OpsRequest } from "@elruso/types";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { tryGetDb } from "../db.js";
-import { saveRequestValues, hasRequestValues, generateEnvRuntime } from "../vault.js";
+import { saveRequestValues, hasRequestValues, generateEnvRuntime, validateProvider, execScript } from "../vault.js";
 
 // ─── File-backed helpers (fallback sin DB) ──────────────────────────
 const OPS_DIR = resolve(import.meta.dirname, "../../../../ops");
@@ -149,6 +149,41 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     async (request): Promise<ApiResponse<{ has_value: boolean }>> => {
       const { id } = request.params;
       return { ok: true, data: { has_value: hasRequestValues(id) } };
+    }
+  );
+
+  // ─── VALIDATE ──────────────────────────────────────────────────
+
+  app.post<{ Params: { id: string } }>(
+    "/ops/requests/:id/validate",
+    async (request): Promise<ApiResponse<{ ok: boolean; message: string }>> => {
+      const { id } = request.params;
+      const result = await validateProvider(id);
+      return { ok: true, data: result };
+    }
+  );
+
+  // ─── ACTIONS (ejecutar scripts desde panel) ────────────────────
+
+  type ActionResult = { ok: boolean; output: string; exitCode: number };
+
+  const ACTION_SCRIPTS: Record<string, string> = {
+    migrate: "db_migrate.sh",
+    seed: "seed_ops_to_db.sh",
+    "deploy-render": "deploy_staging_api.sh",
+    "deploy-vercel": "deploy_staging_web.sh",
+  };
+
+  app.post<{ Params: { action: string } }>(
+    "/ops/actions/:action",
+    async (request): Promise<ApiResponse<ActionResult>> => {
+      const { action } = request.params;
+      const scriptName = ACTION_SCRIPTS[action];
+      if (!scriptName) {
+        return { ok: false, error: `Acción desconocida: ${action}. Válidas: ${Object.keys(ACTION_SCRIPTS).join(", ")}` };
+      }
+      const result = await execScript(scriptName);
+      return { ok: true, data: result };
     }
   );
 

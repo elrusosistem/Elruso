@@ -70,6 +70,7 @@ psql $DATABASE_URL -c 'SELECT 1;'
 # http://localhost:3000/#/tasks
 # http://localhost:3000/#/requests
 # http://localhost:3000/#/directives
+# http://localhost:3000/#/setup      ← Setup Wizard
 ```
 
 ## Setup Inicial (versión corta)
@@ -81,6 +82,54 @@ cp .env.example apps/api/.env
 cp .env.example apps/worker/.env
 # Editar .env con valores reales
 ```
+
+## Bootstrap desde Panel (sin terminal para secretos)
+
+El panel arranca sin credenciales. Todo el flujo de setup se hace desde `#/setup`:
+
+```bash
+# 1. Levantar dev servers (sin creds, funciona file-backed)
+pnpm dev:api    # :3001
+pnpm dev:web    # :3000
+
+# 2. Ir al Setup Wizard
+# http://localhost:3000/#/setup
+```
+
+**Flujo en el panel:**
+
+1. **Supabase** (REQ-001 + REQ-005):
+   - Pegar SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY → Guardar
+   - Pegar DATABASE_URL → Guardar
+   - Validar (check de conectividad sin exponer secretos)
+   - Migrar DB → ejecuta `db_migrate.sh`
+   - Seed Ops → ejecuta `seed_ops_to_db.sh`
+
+2. **Render** (REQ-002 + REQ-007):
+   - Pegar RENDER_API_TOKEN → Guardar
+   - Pegar RENDER_API_SERVICE_ID → Guardar
+   - Validar token
+   - Deploy Staging API → ejecuta `deploy_staging_api.sh`
+
+3. **Vercel** (REQ-003 + REQ-008):
+   - Pegar VERCEL_TOKEN → Guardar
+   - Pegar VERCEL_PROJECT_ID_WEB → Guardar
+   - Validar token
+   - Deploy Staging Web → ejecuta `deploy_staging_web.sh`
+
+**Verificación post-setup:**
+```bash
+# Desde terminal (opcional)
+curl http://localhost:3001/ops/requests  # todos PROVIDED
+curl http://localhost:3001/health        # healthy
+
+# Desde panel
+# #/setup → todos los badges en verde (ok)
+# #/requests → todos PROVIDED
+# #/tasks → lecturas desde DB (no file-backed)
+```
+
+**Seguridad:** Los secretos se guardan en `ops/.secrets/requests_values.json` (gitignored). Nunca se exponen en logs, API responses, ni REQUESTS.json. La validación solo devuelve ok/fail + mensaje corto.
 
 ## Desarrollo Local
 

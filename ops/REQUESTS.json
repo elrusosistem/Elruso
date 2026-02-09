@@ -60,5 +60,25 @@
     "where_to_set": "PATH (brew instala en /opt/homebrew/opt/libpq/bin/psql)",
     "validation_cmd": "psql --version",
     "status": "WAITING"
+  },
+  {
+    "id": "REQ-007",
+    "service": "render",
+    "type": "credentials",
+    "scopes": ["RENDER_API_SERVICE_ID"],
+    "purpose": "Service ID de la API en Render para deploy staging. Obtener de Render Dashboard > Service > Settings > ID",
+    "where_to_set": ".env local, GitHub Secrets",
+    "validation_cmd": "curl -s -H 'Authorization: Bearer $RENDER_API_TOKEN' https://api.render.com/v1/services/$RENDER_API_SERVICE_ID | jq '.id'",
+    "status": "WAITING"
+  },
+  {
+    "id": "REQ-008",
+    "service": "vercel",
+    "type": "credentials",
+    "scopes": ["VERCEL_PROJECT_ID_WEB"],
+    "purpose": "Project ID del panel web en Vercel para deploy. Obtener de Vercel Dashboard > Project > Settings > General > Project ID",
+    "where_to_set": ".env local, GitHub Secrets",
+    "validation_cmd": "curl -s -H 'Authorization: Bearer $VERCEL_TOKEN' https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID_WEB | jq '.id'",
+    "status": "WAITING"
   }
 ]

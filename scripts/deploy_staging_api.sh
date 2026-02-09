@@ -3,6 +3,11 @@ set -euo pipefail
 
 echo "=== Deploy Staging API (Render) ==="
 
+# ─── Cargar env vars desde vault local ────────────────────────────────
+SCRIPT_DIR_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./load_vault_env.sh
+source "$SCRIPT_DIR_SELF/load_vault_env.sh"
+
 # Verificar token
 if [ -z "${RENDER_API_TOKEN:-}" ]; then
   echo "Error: RENDER_API_TOKEN no configurado."
