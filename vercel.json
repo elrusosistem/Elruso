@@ -1,0 +1,5 @@
+{
+  "buildCommand": "pnpm --filter @elruso/types build && pnpm --filter @elruso/web build",
+  "outputDirectory": "apps/web/dist",
+  "installCommand": "pnpm install"
+}
