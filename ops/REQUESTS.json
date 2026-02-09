@@ -24,7 +24,8 @@
     "purpose": "Deploy automático de API y Worker a Render desde CI y scripts",
     "where_to_set": "GitHub Secrets (RENDER_API_TOKEN), .env local para scripts",
     "validation_cmd": "curl -s -H 'Authorization: Bearer $RENDER_API_TOKEN' https://api.render.com/v1/owners | jq '.length'",
-    "status": "WAITING"
+    "status": "PROVIDED",
+    "provided_at": "2026-02-09T01:37:29.304Z"
   },
   {
     "id": "REQ-003",
@@ -36,7 +37,8 @@
     "purpose": "Deploy automático del panel web a Vercel desde CI y scripts",
     "where_to_set": "GitHub Secrets (VERCEL_TOKEN), .env local para scripts",
     "validation_cmd": "curl -s -H 'Authorization: Bearer $VERCEL_TOKEN' https://api.vercel.com/v2/user | jq '.user.username'",
-    "status": "WAITING"
+    "status": "PROVIDED",
+    "provided_at": "2026-02-09T01:58:01.122Z"
   },
   {
     "id": "REQ-004",
@@ -88,7 +90,8 @@
     "purpose": "Service ID de la API en Render para deploy staging. Obtener de Render Dashboard > Service > Settings > ID",
     "where_to_set": ".env local, GitHub Secrets",
     "validation_cmd": "curl -s -H 'Authorization: Bearer $RENDER_API_TOKEN' https://api.render.com/v1/services/$RENDER_API_SERVICE_ID | jq '.id'",
-    "status": "WAITING"
+    "status": "PROVIDED",
+    "provided_at": "2026-02-09T01:38:06.318Z"
   },
   {
     "id": "REQ-008",
@@ -100,6 +103,19 @@
     "purpose": "Project ID del panel web en Vercel para deploy. Obtener de Vercel Dashboard > Project > Settings > General > Project ID",
     "where_to_set": ".env local, GitHub Secrets",
     "validation_cmd": "curl -s -H 'Authorization: Bearer $VERCEL_TOKEN' https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID_WEB | jq '.id'",
+    "status": "PROVIDED",
+    "provided_at": "2026-02-09T01:58:30.091Z"
+  },
+  {
+    "id": "REQ-009",
+    "service": "openai",
+    "type": "api_token",
+    "scopes": [
+      "OPENAI_API_KEY"
+    ],
+    "purpose": "API key de OpenAI para que El Ruso llame a GPT programaticamente (compose prompt -> GPT API -> directivas)",
+    "where_to_set": "Vault via panel (#/setup), luego .env local y Render env vars",
+    "validation_cmd": "curl -s https://api.openai.com/v1/models -H 'Authorization: Bearer $OPENAI_API_KEY' | jq '.data[0].id'",
     "status": "WAITING"
   }
 ]

@@ -280,6 +280,52 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
+  // ─── REQUESTS: crear ─────────────────────────────────────────────
+
+  app.post<{ Body: OpsRequest }>(
+    "/ops/requests",
+    async (request): Promise<ApiResponse<OpsRequest>> => {
+      const body = request.body as OpsRequest;
+
+      if (!body.id || !body.service || !body.purpose) {
+        return { ok: false, error: "id, service y purpose son requeridos" };
+      }
+
+      const entry: OpsRequest = {
+        id: body.id,
+        service: body.service,
+        type: body.type || "credentials",
+        scopes: body.scopes || [],
+        purpose: body.purpose,
+        where_to_set: body.where_to_set || "",
+        validation_cmd: body.validation_cmd || "",
+        status: "WAITING",
+      };
+
+      const db = tryGetDb();
+      if (db) {
+        const { data, error } = await db
+          .from("ops_requests")
+          .upsert(entry, { onConflict: "id" })
+          .select()
+          .single();
+        if (error) return { ok: false, error: error.message };
+        return { ok: true, data: data as OpsRequest };
+      }
+
+      // Fallback file-backed
+      const all = readJson<OpsRequest[]>("REQUESTS.json");
+      const idx = all.findIndex((r) => r.id === entry.id);
+      if (idx >= 0) {
+        all[idx] = entry;
+      } else {
+        all.push(entry);
+      }
+      writeJson("REQUESTS.json", all);
+      return { ok: true, data: entry };
+    }
+  );
+
   // ─── TASKS ───────────────────────────────────────────────────────
 
   app.get("/ops/tasks", async (request): Promise<ApiResponse<TaskEntry[]>> => {
