@@ -2,13 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
-    "composite": false,
-    "declaration": false,
-    "declarationMap": false,
-    "paths": {
-      "@elruso/types": ["../../packages/types/dist"]
-    }
+    "rootDir": "./src"
   },
-  "include": ["src"]
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/types" }
+  ]
 }
