@@ -1,5 +1,9 @@
 {
   "buildCommand": "pnpm --filter @elruso/types build && pnpm --filter @elruso/web build",
   "outputDirectory": "apps/web/dist",
-  "installCommand": "pnpm install"
+  "installCommand": "pnpm install",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://elruso.onrender.com/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
