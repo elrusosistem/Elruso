@@ -383,10 +383,10 @@ git push origin main
 
 ### Worker no procesa tasks
 1. Verificar logs: `render logs --service elruso-worker-staging`
-2. Verificar que SUPABASE_SERVICE_ROLE_KEY esté configurada
-3. Verificar tabla `tasks` en Supabase
+2. Verificar que SUPABASE_SERVICE_ROLE_KEY este configurada
+3. Verificar tabla `ops_tasks` en Supabase
 
-### Webhooks no llegan
-1. Verificar que el webhook esté registrado en Tiendanube
-2. Verificar logs de la API para requests entrantes
-3. Verificar tabla `webhook_events` para duplicados
+### Build falla en Render
+1. Verificar que `*.tsbuildinfo` no este en git (`git ls-files '*.tsbuildinfo'` debe dar vacio)
+2. Verificar que `pnpm --filter @elruso/types build` genera `packages/types/dist/index.d.ts`
+3. Verificar NODE_VERSION=22 en env vars de Render

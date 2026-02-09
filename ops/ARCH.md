@@ -1,66 +1,115 @@
-# Arquitectura - Elruso
+# Arquitectura - El Ruso
 
-## Visión General
+## Vision General
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌────────────────┐
-│  Tiendanube  │────▶│  Elruso API  │────▶│   Supabase DB  │
-│  (webhooks)  │     │  (Fastify)   │◀────│  (PostgreSQL)  │
-└─────────────┘     └──────┬───────┘     └───────▲────────┘
-                           │                      │
-                    ┌──────▼───────┐              │
-                    │  Elruso Web  │              │
-                    │  (React SPA) │              │
-                    └──────────────┘              │
-                                                  │
-                    ┌──────────────┐              │
-                    │   Worker     │──────────────┘
-                    │  (cron/jobs) │
-                    └──────────────┘
+┌──────────┐     ┌──────────────┐     ┌────────────────┐
+│   GPT    │────>│  Elruso API  │────>│   Supabase DB  │
+│(directivas)    │  (Fastify)   │<────│  (PostgreSQL)  │
+└──────────┘     └──────┬───────┘     └───────^────────┘
+                        │                      │
+                 ┌──────v───────┐              │
+                 │  Panel Web   │              │
+                 │  (React SPA) │              │
+                 └──────────────┘              │
+                                               │
+                 ┌──────────────┐              │
+                 │   Worker     │──────────────┘
+                 │  (runner)    │
+                 └──────────────┘
+
+┌──────────────────────────────────────────────┐
+│  Claude Code (ejecutor CLI)                  │
+│  - Recibe tasks del backlog                  │
+│  - Escribe codigo, tests, commits            │
+│  - Registra runs via API                     │
+└──────────────────────────────────────────────┘
 ```
 
-## Flujo de Stock
+## Flujo de Orquestacion
 
-### Source of Truth
-Nuestro sistema es la fuente de verdad de stock. Nunca leemos stock actual de Tiendanube; solo enviamos actualizaciones.
+### 1. GPT genera directivas
 
-### Tipos de Movimiento
-- **reserve**: Reserva stock (ej: orden creada)
-- **release**: Libera reserva (ej: orden cancelada)
-- **adjust**: Ajuste manual de stock
-- **reconcile**: Reconciliación automática (worker)
-- **sync_in**: Carga inicial desde Tiendanube
-- **sync_out**: Push de stock a Tiendanube
-
-### Fórmula de Stock
 ```
-available = quantity - reserved
+compose_gpt_prompt.sh -> genera prompt con:
+  - GPT_CONTEXT.md (canon)
+  - STATE.md (estado actual)
+  - TASKS.json (backlog)
+  - REQUESTS.json (pendientes)
+  - Ultimos commits
 ```
 
-### Idempotencia
-Todos los webhooks son idempotentes: se registra `event_id` + hash del payload. Si ya existe, se ignora con status `duplicate`.
+GPT responde con directivas JSON (nuevas tasks, cambios de prioridad, decisiones).
 
-## Tablas Principales
+### 2. Humano revisa en panel
 
-- `stock_entries`: Stock actual por SKU/variante/warehouse
-- `stock_movements`: Log inmutable de todos los movimientos
-- `tiendanube_stores`: Tiendas conectadas (OAuth tokens)
-- `webhook_events`: Log de webhooks recibidos
-- `tasks`: Cola de tareas del worker
+El panel muestra directivas pendientes, requests, estado de runs.
+El humano aprueba, provee credentials, o escala.
 
-## Flujo de Webhooks (Tiendanube)
+### 3. Claude Code ejecuta
 
-1. Tiendanube envía POST a `/webhooks/tiendanube`
-2. API valida firma + idempotencia (event_id + payload_hash)
-3. Si es duplicado → 200 OK, status `duplicate`
-4. Si es nuevo → persiste evento, crea task para procesar
-5. Worker toma task y ejecuta lógica de stock
-6. Worker pushea stock actualizado a Tiendanube via API
+```
+apply_gpt_directives.sh -> carga directivas a TASKS.json
+Claude toma task READY -> ejecuta por CLI
+run_agent.sh -> registra run (steps, file_changes, resultado)
+```
+
+### 4. Ciclo se repite
+
+El resultado del run alimenta el proximo compose_gpt_prompt.
+
+## Componentes
+
+### API (apps/api)
+- **Framework**: Fastify + TypeScript
+- **Deploy**: Render (https://elruso.onrender.com)
+- **Endpoints**:
+  - `GET /health` — health check
+  - `GET /runs` — lista de runs
+  - `GET /runs/:id` — detalle de run con steps y file_changes
+  - `GET /ops/requests` — requests pendientes
+  - `POST /ops/validate-setup` — validar vault/DB
+  - `POST /ops/deploy/:target` — trigger deploy
+  - `POST /ops/exec-script` — ejecutar script del repo
+
+### Panel (apps/web)
+- **Framework**: Vite + React + TypeScript + Tailwind
+- **Deploy**: Vercel (https://elruso.vercel.app)
+- **Proxy**: `/api/*` -> Render via vercel.json
+- **Paginas**: Runs, Tasks, Requests, Directives, Setup Wizard
+
+### Worker (apps/worker)
+- **Estado**: Placeholder (Paso 5)
+- **Futuro**: Runner autonomo que toma tasks, ejecuta, registra runs
+
+### Types (packages/types)
+- **Tipos compartidos**: Run, Task, Directive, Request, ApiResponse
+- **Build**: `tsc -b` con project references
+- **Importante**: `*.tsbuildinfo` en .gitignore (evita builds stale en Render)
+
+## Tablas en Supabase
+
+| Tabla | Proposito |
+|---|---|
+| `run_logs` | Registro de ejecuciones (task_id, status, branch, commit, summary) |
+| `run_steps` | Pasos dentro de cada run (cmd, exit_code, output) |
+| `file_changes` | Archivos modificados por run |
+| `ops_requests` | Requests de credentials/tokens |
+| `ops_tasks` | Backlog de tareas (mirror de TASKS.json) |
+| `ops_directives` | Directivas de GPT |
+| `decisions_log` | Decisiones arquitectonicas |
+| `_migrations` | Control de migraciones SQL |
+| `_seed_control` | Control de seeds idempotentes |
 
 ## Deploy
 
-| Servicio | Plataforma | Staging            | Prod              |
-|----------|------------|--------------------|--------------------|
-| API      | Render     | Auto (push/merge)  | Manual (CLI)       |
-| Worker   | Render     | Auto (push/merge)  | Manual (CLI)       |
-| Web      | Vercel     | Auto (push/merge)  | Manual (CLI)       |
+| Servicio | Plataforma | Build Command | Start Command |
+|----------|------------|---------------|---------------|
+| API | Render | `pnpm install --frozen-lockfile && pnpm --filter @elruso/types build && pnpm --filter @elruso/api build` | `node apps/api/dist/server.js` |
+| Panel | Vercel | Auto (Vite) | Static |
+| Worker | Render | (futuro) | (futuro) |
+
+### Notas de Deploy
+- Render usa NODE_VERSION=22 como env var
+- Vercel tiene rewrite `/api/:path*` -> `https://elruso.onrender.com/:path*`
+- `*.tsbuildinfo` excluido de git para evitar builds corruptos en CI

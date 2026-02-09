@@ -1,14 +1,14 @@
 # STATE.md — Estado Vivo del Proyecto
 
 > Generado automáticamente por scripts/update_state.sh
-> Última actualización: 2026-02-08T23:51:12Z
+> Última actualización: 2026-02-09T04:42:05Z
 
 ---
 
 ## HEAD
 
 ```
-bae1891 feat: vault local para secrets + panel de requests con inputs
+bd810f0 fix: remove tsbuildinfo from git, add to gitignore
 ```
 
 **Branch**: `main`
@@ -27,6 +27,18 @@ bae1891 feat: vault local para secrets + panel de requests con inputs
 | 0 | feat: supabase db-first ops (requests/tasks/directives) | `2937684` |
 | 0 | feat: git remote + scripts mantenimiento + bootstrap reproducible | `bfb8dfa` |
 | 0 | chore: update STATE.md post-commit | `0115408` |
+| 0 | feat: vault local para secrets + panel de requests con inputs | `bae1891` |
+| 0 | chore: update STATE.md post-vault | `bf460d4` |
+| 0 | feat: setup wizard + vault validation + deploy actions desde panel | `ffb2333` |
+| 0 | fix: vault path, DB validation via REST, setup wizard editable | `4893a53` |
+| 0 | fix: remove tsc -b from web build (resolves Vercel deploy) | `ba0d259` |
+| 0 | fix: add vercel.json to build only types + web | `bab5fa7` |
+| 0 | chore: trigger Vercel deploy | `58d1933` |
+| 0 | feat: deploy config for Render + Vercel | `c336eac` |
+| 0 | chore: trigger deploy | `589e035` |
+| 0 | fix: add tsconfig.build-api.json + root typescript for Render build | `daa451f` |
+| 0 | fix: API build sin project refs para compatibilidad Render | `ffe7f97` |
+| 0 | fix: types con declaration explícito + revert API a tsc -b | `65555bf` |
 
 ---
 
@@ -40,17 +52,13 @@ bae1891 feat: vault local para secrets + panel de requests con inputs
 
 | ID | Servicio | Qué falta | Propósito |
 |---|---|---|---|
-| REQ-001 | supabase | SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY | Conexión a base de datos PostgreSQL para API y Worker |
-| REQ-002 | render | RENDER_API_TOKEN | Deploy automático de API y Worker a Render desde CI y scripts |
-| REQ-003 | vercel | VERCEL_TOKEN | Deploy automático del panel web a Vercel desde CI y scripts |
-| REQ-005 | supabase | DATABASE_URL | Connection string PostgreSQL directa para migraciones con psql |
-| REQ-006 | local | psql | Cliente PostgreSQL para ejecutar migraciones y seed |
+| (ninguno) | - | - | - |
 
 ---
 
 ## Próximo Objetivo Inmediato
 
-1. **T-001: Migraciones DB: tablas stock_entries, stock_movements**
+1. **T-020: Memoria real: POST /runs con steps y file_changes**
 
 ---
 
@@ -62,6 +70,6 @@ No hay runs registrados aún
 
 ## Tasks por Estado
 
-- **done**: T-000, T-013, T-014, T-015
-- **ready**: T-001, T-002, T-003, T-004, T-005, T-006, T-007, T-008, T-009, T-010, T-011, T-012
+- **done**: T-000, T-013, T-014, T-015, T-016
+- **ready**: T-020, T-021, T-022, T-023, T-030, T-031, T-032, T-040, T-041, T-042, T-050, T-051, T-052, T-060, T-061, T-062
 - **running**: ninguna

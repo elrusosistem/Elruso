@@ -4,172 +4,9 @@
     "phase": 0,
     "title": "Bootstrap monorepo + /ops + scripts + CI",
     "status": "done",
-    "branch": "task/T-000",
+    "branch": "main",
     "depends_on": [],
     "blocked_by": []
-  },
-  {
-    "id": "T-001",
-    "phase": 1,
-    "title": "Migraciones DB: tablas stock_entries, stock_movements",
-    "status": "ready",
-    "branch": "task/T-001",
-    "depends_on": [
-      "T-000"
-    ],
-    "blocked_by": [
-      "REQ-001"
-    ]
-  },
-  {
-    "id": "T-002",
-    "phase": 1,
-    "title": "Stock engine: reservar, liberar, ajustar, reconciliar",
-    "status": "ready",
-    "branch": "task/T-002",
-    "depends_on": [
-      "T-001"
-    ],
-    "blocked_by": [
-      "REQ-001"
-    ]
-  },
-  {
-    "id": "T-003",
-    "phase": 1,
-    "title": "API endpoints stock: GET /stock, POST /stock/movements",
-    "status": "ready",
-    "branch": "task/T-003",
-    "depends_on": [
-      "T-002"
-    ],
-    "blocked_by": [
-      "REQ-001"
-    ]
-  },
-  {
-    "id": "T-004",
-    "phase": 2,
-    "title": "OAuth Tiendanube: flow completo + almacenamiento token",
-    "status": "ready",
-    "branch": "task/T-004",
-    "depends_on": [
-      "T-003"
-    ],
-    "blocked_by": [
-      "REQ-001"
-    ]
-  },
-  {
-    "id": "T-005",
-    "phase": 2,
-    "title": "Webhooks Tiendanube: recepción, idempotencia, procesamiento",
-    "status": "ready",
-    "branch": "task/T-005",
-    "depends_on": [
-      "T-004"
-    ],
-    "blocked_by": [
-      "REQ-001"
-    ]
-  },
-  {
-    "id": "T-006",
-    "phase": 2,
-    "title": "Sync stock: push a Tiendanube via API",
-    "status": "ready",
-    "branch": "task/T-006",
-    "depends_on": [
-      "T-005"
-    ],
-    "blocked_by": [
-      "REQ-001"
-    ]
-  },
-  {
-    "id": "T-007",
-    "phase": 3,
-    "title": "Worker: polling de tasks, ejecución, retry logic",
-    "status": "ready",
-    "branch": "task/T-007",
-    "depends_on": [
-      "T-003"
-    ],
-    "blocked_by": [
-      "REQ-001"
-    ]
-  },
-  {
-    "id": "T-008",
-    "phase": 3,
-    "title": "Worker: job de reconciliación automática",
-    "status": "ready",
-    "branch": "task/T-008",
-    "depends_on": [
-      "T-007"
-    ],
-    "blocked_by": [
-      "REQ-001"
-    ]
-  },
-  {
-    "id": "T-009",
-    "phase": 4,
-    "title": "Frontend: panel de Requests y Tasks",
-    "status": "ready",
-    "branch": "task/T-009",
-    "depends_on": [
-      "T-003"
-    ],
-    "blocked_by": [
-      "REQ-001",
-      "REQ-003"
-    ]
-  },
-  {
-    "id": "T-010",
-    "phase": 4,
-    "title": "Frontend: panel de Logs y movimientos de stock",
-    "status": "ready",
-    "branch": "task/T-010",
-    "depends_on": [
-      "T-009"
-    ],
-    "blocked_by": [
-      "REQ-001",
-      "REQ-003"
-    ]
-  },
-  {
-    "id": "T-011",
-    "phase": 5,
-    "title": "Runner 24/7: loop automático TASKS → ejecución → PRs → staging",
-    "status": "ready",
-    "branch": "task/T-011",
-    "depends_on": [
-      "T-007"
-    ],
-    "blocked_by": [
-      "REQ-001",
-      "REQ-002",
-      "REQ-004"
-    ]
-  },
-  {
-    "id": "T-012",
-    "phase": 6,
-    "title": "Hardening: rate limit, auth panel, backups, alertas",
-    "status": "ready",
-    "branch": "task/T-012",
-    "depends_on": [
-      "T-010",
-      "T-011"
-    ],
-    "blocked_by": [
-      "REQ-001",
-      "REQ-002",
-      "REQ-003"
-    ]
   },
   {
     "id": "T-013",
@@ -177,9 +14,7 @@
     "title": "Run recorder: DB tables + API endpoints + wrapper scripts",
     "status": "done",
     "branch": "main",
-    "depends_on": [
-      "T-000"
-    ],
+    "depends_on": ["T-000"],
     "blocked_by": []
   },
   {
@@ -188,20 +23,178 @@
     "title": "Panel de runs: lista /runs + detalle /runs/:id",
     "status": "done",
     "branch": "main",
-    "depends_on": [
-      "T-013"
-    ],
+    "depends_on": ["T-013"],
     "blocked_by": []
   },
   {
     "id": "T-015",
     "phase": 0,
-    "title": "Bridge GPT-Claude: compose prompt, apply directives, inbox panel (requests/directives/tasks)",
+    "title": "Bridge GPT-Claude: compose prompt, apply directives, inbox panel",
     "status": "done",
     "branch": "main",
-    "depends_on": [
-      "T-014"
-    ],
+    "depends_on": ["T-014"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-016",
+    "phase": 1,
+    "title": "Fixes infra: Render build, Vercel proxy, vault local, setup wizard",
+    "status": "done",
+    "branch": "main",
+    "depends_on": ["T-015"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-017",
+    "phase": 1,
+    "title": "Ordenar el cerebro: reescribir ops docs, types, eliminar refs stock",
+    "status": "in_progress",
+    "branch": "main",
+    "depends_on": ["T-016"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-020",
+    "phase": 2,
+    "title": "Memoria real: POST /runs con steps y file_changes",
+    "status": "ready",
+    "branch": "task/T-020",
+    "depends_on": ["T-017"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-021",
+    "phase": 2,
+    "title": "Memoria real: POST /directives (crear directiva desde panel o script)",
+    "status": "ready",
+    "branch": "task/T-021",
+    "depends_on": ["T-017"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-022",
+    "phase": 2,
+    "title": "Memoria real: POST /tasks (crear/actualizar tasks via API)",
+    "status": "ready",
+    "branch": "task/T-022",
+    "depends_on": ["T-017"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-023",
+    "phase": 2,
+    "title": "Migrar scripts de psql a REST API (seed, sync, migrate)",
+    "status": "ready",
+    "branch": "task/T-023",
+    "depends_on": ["T-020"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-030",
+    "phase": 3,
+    "title": "Puente GPT: testear compose_gpt_prompt end-to-end",
+    "status": "ready",
+    "branch": "task/T-030",
+    "depends_on": ["T-023"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-031",
+    "phase": 3,
+    "title": "Puente GPT: testear apply_directives end-to-end",
+    "status": "ready",
+    "branch": "task/T-031",
+    "depends_on": ["T-030"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-032",
+    "phase": 3,
+    "title": "Puente GPT: testear run_agent end-to-end (ejecuta + registra)",
+    "status": "ready",
+    "branch": "task/T-032",
+    "depends_on": ["T-031"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-040",
+    "phase": 4,
+    "title": "Panel: dashboard de estado (health, ultimo run, tasks pendientes)",
+    "status": "ready",
+    "branch": "task/T-040",
+    "depends_on": ["T-022"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-041",
+    "phase": 4,
+    "title": "Panel: recibir y aplicar directivas desde el panel",
+    "status": "ready",
+    "branch": "task/T-041",
+    "depends_on": ["T-021", "T-040"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-042",
+    "phase": 4,
+    "title": "Panel: vista de diffs y file_changes por run",
+    "status": "ready",
+    "branch": "task/T-042",
+    "depends_on": ["T-020", "T-040"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-050",
+    "phase": 5,
+    "title": "Runner 24/7: worker con loop autonomo de tasks",
+    "status": "ready",
+    "branch": "task/T-050",
+    "depends_on": ["T-032"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-051",
+    "phase": 5,
+    "title": "Runner 24/7: reintentos con backoff exponencial",
+    "status": "ready",
+    "branch": "task/T-051",
+    "depends_on": ["T-050"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-052",
+    "phase": 5,
+    "title": "Runner 24/7: PRs automaticos por task completada",
+    "status": "ready",
+    "branch": "task/T-052",
+    "depends_on": ["T-050"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-060",
+    "phase": 6,
+    "title": "Hardening: auth en API y panel",
+    "status": "ready",
+    "branch": "task/T-060",
+    "depends_on": ["T-050"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-061",
+    "phase": 6,
+    "title": "Hardening: multi-tenant (multiples instancias de orquestador)",
+    "status": "ready",
+    "branch": "task/T-061",
+    "depends_on": ["T-060"],
+    "blocked_by": []
+  },
+  {
+    "id": "T-062",
+    "phase": 6,
+    "title": "Hardening: auditoria completa + SLA monitoring",
+    "status": "ready",
+    "branch": "task/T-062",
+    "depends_on": ["T-060"],
     "blocked_by": []
   }
 ]

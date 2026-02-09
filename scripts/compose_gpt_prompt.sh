@@ -107,8 +107,8 @@ Responde SOLO con un JSON array de directivas. Cada directiva debe seguir este f
 3. No pedir cosas que estén bloqueadas por REQUESTS sin resolver.
 4. Respetar el stack fijo (no proponer cambios de tecnología).
 5. Priorizar: lo que desbloquea más tareas primero.
-6. No tocar precios, solo stock.
-7. Source of truth de stock: nuestro sistema.
+6. GPT define, Claude ejecuta, Humano aprueba.
+7. Idioma: espanol en toda comunicacion.
 
 ---
 
