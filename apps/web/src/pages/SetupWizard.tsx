@@ -65,6 +65,7 @@ export function SetupWizard() {
   const [actionLog, setActionLog] = useState<ActionLog | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ Supabase: true, Render: true, Vercel: true });
+  const [editing, setEditing] = useState<Record<string, boolean>>({});
 
   const fetchAll = () => {
     fetch("/api/ops/requests")
@@ -225,7 +226,7 @@ export function SetupWizard() {
                         {req.scopes.map((scope) => (
                           <div key={scope} className="flex items-center gap-2">
                             <label className="text-xs text-gray-400 w-52 flex-shrink-0 font-mono">{scope}</label>
-                            {vaultStatus[reqId] ? (
+                            {vaultStatus[reqId] && !editing[reqId] ? (
                               <span className="text-xs text-green-400">guardado en vault</span>
                             ) : (
                               <input
@@ -241,13 +242,21 @@ export function SetupWizard() {
                       </div>
 
                       <div className="flex items-center gap-2 mt-3">
-                        {!vaultStatus[reqId] && (
+                        {(!vaultStatus[reqId] || editing[reqId]) && (
                           <button
-                            onClick={() => saveValues(reqId)}
+                            onClick={() => { saveValues(reqId); setEditing((prev) => ({ ...prev, [reqId]: false })); }}
                             disabled={saving === reqId}
                             className="text-xs px-3 py-1.5 bg-green-700 hover:bg-green-600 disabled:bg-gray-600 rounded transition-colors"
                           >
                             {saving === reqId ? "Guardando..." : "Guardar"}
+                          </button>
+                        )}
+                        {vaultStatus[reqId] && !editing[reqId] && (
+                          <button
+                            onClick={() => setEditing((prev) => ({ ...prev, [reqId]: true }))}
+                            className="text-xs px-3 py-1.5 bg-yellow-700 hover:bg-yellow-600 rounded transition-colors"
+                          >
+                            Editar
                           </button>
                         )}
                         {vaultStatus[reqId] && (

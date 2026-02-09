@@ -3,17 +3,24 @@
     "id": "REQ-001",
     "service": "supabase",
     "type": "credentials",
-    "scopes": ["SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"],
+    "scopes": [
+      "SUPABASE_URL",
+      "SUPABASE_ANON_KEY",
+      "SUPABASE_SERVICE_ROLE_KEY"
+    ],
     "purpose": "Conexión a base de datos PostgreSQL para API y Worker",
     "where_to_set": "apps/api/.env, apps/worker/.env, Render env vars, GitHub Secrets",
     "validation_cmd": "curl -s $SUPABASE_URL/rest/v1/ -H 'apikey: $SUPABASE_ANON_KEY' | head -1",
-    "status": "WAITING"
+    "status": "PROVIDED",
+    "provided_at": "2026-02-09T00:34:30.695Z"
   },
   {
     "id": "REQ-002",
     "service": "render",
     "type": "api_token",
-    "scopes": ["RENDER_API_TOKEN"],
+    "scopes": [
+      "RENDER_API_TOKEN"
+    ],
     "purpose": "Deploy automático de API y Worker a Render desde CI y scripts",
     "where_to_set": "GitHub Secrets (RENDER_API_TOKEN), .env local para scripts",
     "validation_cmd": "curl -s -H 'Authorization: Bearer $RENDER_API_TOKEN' https://api.render.com/v1/owners | jq '.length'",
@@ -23,7 +30,9 @@
     "id": "REQ-003",
     "service": "vercel",
     "type": "api_token",
-    "scopes": ["VERCEL_TOKEN"],
+    "scopes": [
+      "VERCEL_TOKEN"
+    ],
     "purpose": "Deploy automático del panel web a Vercel desde CI y scripts",
     "where_to_set": "GitHub Secrets (VERCEL_TOKEN), .env local para scripts",
     "validation_cmd": "curl -s -H 'Authorization: Bearer $VERCEL_TOKEN' https://api.vercel.com/v2/user | jq '.user.username'",
@@ -33,7 +42,9 @@
     "id": "REQ-004",
     "service": "github",
     "type": "repository",
-    "scopes": ["REPO_URL"],
+    "scopes": [
+      "REPO_URL"
+    ],
     "purpose": "Repositorio remoto para push, PRs y CI/CD",
     "where_to_set": "git remote add origin <url>",
     "validation_cmd": "git remote -v",
@@ -45,27 +56,35 @@
     "id": "REQ-005",
     "service": "supabase",
     "type": "connection_string",
-    "scopes": ["DATABASE_URL"],
+    "scopes": [
+      "DATABASE_URL"
+    ],
     "purpose": "Connection string PostgreSQL directa para migraciones con psql. Requiere psql instalado (REQ-006)",
     "where_to_set": ".env (root y apps), Render env vars, GitHub Secrets",
     "validation_cmd": "psql $DATABASE_URL -c 'SELECT 1;'",
-    "status": "WAITING"
+    "status": "PROVIDED",
+    "provided_at": "2026-02-09T00:47:23.152Z"
   },
   {
     "id": "REQ-006",
     "service": "local",
     "type": "tool",
-    "scopes": ["psql"],
+    "scopes": [
+      "psql"
+    ],
     "purpose": "Cliente PostgreSQL para ejecutar migraciones y seed. Instalar: brew install libpq && brew link --force libpq",
     "where_to_set": "PATH (brew instala en /opt/homebrew/opt/libpq/bin/psql)",
     "validation_cmd": "psql --version",
-    "status": "WAITING"
+    "status": "PROVIDED",
+    "provided_at": "2026-02-09T00:10:00Z"
   },
   {
     "id": "REQ-007",
     "service": "render",
     "type": "credentials",
-    "scopes": ["RENDER_API_SERVICE_ID"],
+    "scopes": [
+      "RENDER_API_SERVICE_ID"
+    ],
     "purpose": "Service ID de la API en Render para deploy staging. Obtener de Render Dashboard > Service > Settings > ID",
     "where_to_set": ".env local, GitHub Secrets",
     "validation_cmd": "curl -s -H 'Authorization: Bearer $RENDER_API_TOKEN' https://api.render.com/v1/services/$RENDER_API_SERVICE_ID | jq '.id'",
@@ -75,7 +94,9 @@
     "id": "REQ-008",
     "service": "vercel",
     "type": "credentials",
-    "scopes": ["VERCEL_PROJECT_ID_WEB"],
+    "scopes": [
+      "VERCEL_PROJECT_ID_WEB"
+    ],
     "purpose": "Project ID del panel web en Vercel para deploy. Obtener de Vercel Dashboard > Project > Settings > General > Project ID",
     "where_to_set": ".env local, GitHub Secrets",
     "validation_cmd": "curl -s -H 'Authorization: Bearer $VERCEL_TOKEN' https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID_WEB | jq '.id'",

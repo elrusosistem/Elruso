@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/pages/rundetail.tsx","./src/pages/runslist.tsx"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/pages/directiveslist.tsx","./src/pages/requestslist.tsx","./src/pages/rundetail.tsx","./src/pages/runslist.tsx","./src/pages/setupwizard.tsx","./src/pages/taskslist.tsx"],"version":"5.9.3"}
