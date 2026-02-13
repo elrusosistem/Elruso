@@ -87,9 +87,24 @@ process_task() {
 
   log "=== Procesando: ${task_id} — ${task_title} ==="
 
-  # 1. Marcar task como RUNNING
-  api_patch "/ops/tasks/${task_id}" '{"status":"running"}' > /dev/null || true
-  log "  task -> running"
+  # 1. Atomic claim
+  local worker_id="runner-local-$$"
+  local claim_response
+  claim_response=$(api_post "/ops/tasks/claim" "{\"task_id\":\"${task_id}\",\"worker_id\":\"${worker_id}\"}") || claim_response=""
+
+  if [ -z "$claim_response" ]; then
+    log "  WARN: task ya fue claimed por otro worker, saltando"
+    return 2
+  fi
+
+  local claim_ok
+  claim_ok=$(echo "$claim_response" | jq -r '.ok // false')
+  if [ "$claim_ok" != "true" ]; then
+    log "  WARN: task ya fue claimed (409), saltando"
+    return 2
+  fi
+
+  log "  task claimed (worker: ${worker_id})"
 
   # 2. Obtener info git
   local branch commit_hash

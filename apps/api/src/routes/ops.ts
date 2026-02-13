@@ -27,6 +27,8 @@ interface TaskEntry {
   depends_on: string[];
   blocked_by: string[];
   directive_id?: string;
+  worker_id?: string;
+  started_at?: string;
 }
 
 export async function opsRoutes(app: FastifyInstance): Promise<void> {
@@ -338,6 +340,42 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         .select()
         .single();
       if (error) return { ok: false, error: error.message };
+      return { ok: true, data: data as TaskEntry };
+    }
+  );
+
+  // POST /ops/tasks/claim — Atomic claim
+  app.post<{ Body: { task_id: string; worker_id: string } }>(
+    "/ops/tasks/claim",
+    async (request, reply): Promise<ApiResponse<TaskEntry>> => {
+      const { task_id, worker_id } = request.body as { task_id: string; worker_id: string };
+
+      if (!task_id || !worker_id) {
+        return { ok: false, error: "task_id y worker_id son requeridos" };
+      }
+
+      const db = getDb();
+      const now = new Date().toISOString();
+
+      // Atomic update: solo si status='ready'
+      const { data, error } = await db
+        .from("ops_tasks")
+        .update({
+          status: "running",
+          worker_id,
+          started_at: now,
+          updated_at: now,
+        })
+        .eq("id", task_id)
+        .eq("status", "ready")
+        .select()
+        .single();
+
+      if (error || !data) {
+        reply.code(409);
+        return { ok: false, error: "task_already_claimed" };
+      }
+
       return { ok: true, data: data as TaskEntry };
     }
   );
