@@ -3,6 +3,26 @@ import type { ApiResponse, OpsRequest } from "@elruso/types";
 import { getDb } from "../db.js";
 import { saveRequestValues, hasRequestValues, generateEnvRuntime, validateProvider, execScript } from "../vault.js";
 
+// Helper: escribe una decision en decisions_log (fire-and-forget, no bloquea la respuesta)
+function logDecision(opts: {
+  source: string;
+  decision_key: string;
+  decision_value: Record<string, unknown>;
+  context?: Record<string, unknown> | null;
+  run_id?: string | null;
+  directive_id?: string | null;
+}): void {
+  const db = getDb();
+  void db.from("decisions_log").insert({
+    source: opts.source,
+    decision_key: opts.decision_key,
+    decision_value: opts.decision_value,
+    context: opts.context ?? null,
+    run_id: opts.run_id ?? null,
+    directive_id: opts.directive_id ?? null,
+  });
+}
+
 // ─── Types locales ──────────────────────────────────────────────────
 interface Directive {
   id: string;
@@ -284,6 +304,18 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         .select()
         .single();
       if (error) return { ok: false, error: error.message };
+
+      // Decision log: approve/reject
+      if (status === "APPROVED" || status === "REJECTED") {
+        logDecision({
+          source: "human",
+          decision_key: status === "APPROVED" ? "directive_approve" : "directive_reject",
+          decision_value: { directive_id: id, status },
+          context: rejection_reason ? { rejection_reason } : null,
+          directive_id: id,
+        });
+      }
+
       return { ok: true, data: data as Directive };
     }
   );
@@ -332,6 +364,15 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         .select()
         .single();
       if (error) return { ok: false, error: error.message };
+
+      // Decision log: task_created
+      logDecision({
+        source: "system",
+        decision_key: "task_created",
+        decision_value: { task_id: entry.id, title: entry.title, status: entry.status },
+        directive_id: entry.directive_id || null,
+      });
+
       return { ok: true, data: data as TaskEntry };
     }
   );
@@ -489,6 +530,12 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
           return { ok: false, error: "failed_to_block_task" };
         }
 
+        logDecision({
+          source: "system",
+          decision_key: "task_blocked_max_attempts",
+          decision_value: { task_id: id, attempts, max_attempts },
+        });
+
         return { ok: true, data: blockedData as TaskEntry };
       }
 
@@ -510,6 +557,12 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       if (error || !data) {
         return { ok: false, error: "task_not_found_or_not_running" };
       }
+
+      logDecision({
+        source: "system",
+        decision_key: "task_requeued",
+        decision_value: { task_id: id, attempts, max_attempts, backoff_seconds, next_run_at: nextRun.toISOString() },
+      });
 
       return { ok: true, data: data as TaskEntry };
     }
@@ -727,6 +780,12 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       return { ok: false, error: error.message };
     }
 
+    logDecision({
+      source: "human",
+      decision_key: "system_pause",
+      decision_value: { paused: true },
+    });
+
     return { ok: true, data: { paused: true } };
   });
 
@@ -741,6 +800,12 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     if (error) {
       return { ok: false, error: error.message };
     }
+
+    logDecision({
+      source: "human",
+      decision_key: "system_resume",
+      decision_value: { paused: false },
+    });
 
     return { ok: true, data: { paused: false } };
   });
@@ -847,6 +912,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         decision_key: "directive_apply",
         decision_value: { directive_id: id, tasks_created: created },
         context: { payload_hash: directive.payload_hash || null },
+        directive_id: id,
         created_at: now,
       });
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
+import { DecisionsList } from "./DecisionsList";
 
 interface Risk {
   id: string;
@@ -290,6 +291,12 @@ export function DirectivesList() {
                   </button>
                 </div>
               )}
+
+              {/* Decisions asociadas */}
+              <div className="pt-4 border-t border-gray-700">
+                <h4 className="text-sm font-semibold mb-2 text-gray-400">Decisions</h4>
+                <DecisionsList filterDirectiveId={selectedDir.id} />
+              </div>
 
               {/* Meta */}
               <div className="text-xs text-gray-600 pt-2">

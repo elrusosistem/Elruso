@@ -1,0 +1,134 @@
+import { useEffect, useState } from "react";
+import type { ApiResponse, DecisionLog } from "@elruso/types";
+
+interface Props {
+  filterRunId?: string;
+  filterDirectiveId?: string;
+}
+
+const KEY_COLORS: Record<string, string> = {
+  directive_approve: "text-green-400",
+  directive_reject: "text-red-400",
+  directive_apply: "text-blue-400",
+  system_pause: "text-yellow-400",
+  system_resume: "text-green-400",
+  task_created: "text-cyan-400",
+  task_requeued: "text-orange-400",
+  task_blocked_max_attempts: "text-red-400",
+  run_completed: "text-green-400",
+  run_failed: "text-red-400",
+};
+
+const SOURCE_BADGES: Record<string, string> = {
+  human: "bg-purple-700 text-purple-200",
+  system: "bg-gray-700 text-gray-300",
+  runner: "bg-blue-700 text-blue-200",
+  gpt: "bg-yellow-700 text-yellow-200",
+};
+
+function timeAgo(dateStr: string): string {
+  const diff = (Date.now() - new Date(dateStr).getTime()) / 1000;
+  if (diff < 60) return `${Math.round(diff)}s`;
+  if (diff < 3600) return `${Math.round(diff / 60)}m`;
+  if (diff < 86400) return `${Math.round(diff / 3600)}h`;
+  return `${Math.round(diff / 86400)}d`;
+}
+
+export function DecisionsList({ filterRunId, filterDirectiveId }: Props) {
+  const [decisions, setDecisions] = useState<DecisionLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [runIdFilter, setRunIdFilter] = useState(filterRunId || "");
+  const [directiveIdFilter, setDirectiveIdFilter] = useState(filterDirectiveId || "");
+
+  const fetchDecisions = () => {
+    const params = new URLSearchParams();
+    if (runIdFilter) params.set("run_id", runIdFilter);
+    if (directiveIdFilter) params.set("directive_id", directiveIdFilter);
+    params.set("limit", "100");
+
+    fetch(`/api/ops/decisions?${params}`)
+      .then((r) => r.json())
+      .then((data: ApiResponse<DecisionLog[]>) => {
+        if (data.ok && data.data) setDecisions(data.data);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchDecisions();
+    const interval = setInterval(fetchDecisions, 15000);
+    return () => clearInterval(interval);
+  }, [runIdFilter, directiveIdFilter]);
+
+  // If used as embedded component (inside directive detail), hide filters
+  const isEmbedded = filterRunId || filterDirectiveId;
+
+  return (
+    <div className={isEmbedded ? "" : "p-6"}>
+      {!isEmbedded && (
+        <>
+          <h1 className="text-xl font-bold mb-4">Decisions Log</h1>
+          <div className="flex gap-4 mb-4">
+            <input
+              type="text"
+              placeholder="Filtrar por run_id..."
+              value={runIdFilter}
+              onChange={(e) => setRunIdFilter(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white placeholder-gray-500 w-80"
+            />
+            <input
+              type="text"
+              placeholder="Filtrar por directive_id..."
+              value={directiveIdFilter}
+              onChange={(e) => setDirectiveIdFilter(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white placeholder-gray-500 w-80"
+            />
+            <button
+              onClick={fetchDecisions}
+              className="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm"
+            >
+              Buscar
+            </button>
+          </div>
+        </>
+      )}
+
+      {loading ? (
+        <p className="text-gray-500 text-sm">Cargando...</p>
+      ) : decisions.length === 0 ? (
+        <p className="text-gray-500 text-sm">Sin decisiones registradas.</p>
+      ) : (
+        <div className="space-y-2">
+          {decisions.map((d) => (
+            <div key={d.id} className="bg-gray-900 border border-gray-800 rounded p-3">
+              <div className="flex items-center gap-3 mb-1">
+                <span className={`text-xs px-2 py-0.5 rounded ${SOURCE_BADGES[d.source] || "bg-gray-700"}`}>
+                  {d.source}
+                </span>
+                <span className={`text-sm font-mono font-semibold ${KEY_COLORS[d.decision_key] || "text-gray-300"}`}>
+                  {d.decision_key}
+                </span>
+                <span className="text-xs text-gray-500 ml-auto" title={d.created_at}>
+                  {timeAgo(d.created_at)}
+                </span>
+              </div>
+              <div className="text-xs text-gray-400 font-mono mt-1">
+                {JSON.stringify(d.decision_value, null, 0)}
+              </div>
+              {d.context && (
+                <div className="text-xs text-gray-600 font-mono mt-1">
+                  ctx: {JSON.stringify(d.context, null, 0)}
+                </div>
+              )}
+              <div className="flex gap-4 mt-1 text-xs text-gray-600">
+                {d.run_id && <span>run: {d.run_id.substring(0, 8)}</span>}
+                {d.directive_id && <span>directive: {d.directive_id.substring(0, 12)}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

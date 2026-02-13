@@ -7,8 +7,10 @@ const SECRET_PATTERNS: RegExp[] = [
   // API keys con prefijo conocido
   /\bsk-[A-Za-z0-9_-]{20,}/g,           // OpenAI sk-...
   /\brnd_[A-Za-z0-9_-]{20,}/g,          // Render rnd_...
+  /\brndr_[A-Za-z0-9_-]{20,}/g,         // Render rndr_...
+  /\bvcp_[A-Za-z0-9_-]{20,}/g,          // Vercel vcp_...
   /\bsbp_[A-Za-z0-9_-]{20,}/g,          // Supabase sbp_...
-  /\beyJ[A-Za-z0-9_-]{40,}/g,           // JWT tokens (eyJ...)
+  /\beyJ[A-Za-z0-9_.-]{40,}/g,          // JWT tokens (eyJ... including dots for multi-segment)
   // Headers con secretos
   /Authorization:\s*Bearer\s+\S+/gi,
   /apikey:\s*\S+/gi,
@@ -25,8 +27,10 @@ const SECRET_PATTERNS: RegExp[] = [
 const PATTERN_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /\bsk-[A-Za-z0-9_-]{20,}/g, replacement: "sk-***REDACTED***" },
   { pattern: /\brnd_[A-Za-z0-9_-]{20,}/g, replacement: "rnd_***REDACTED***" },
+  { pattern: /\brndr_[A-Za-z0-9_-]{20,}/g, replacement: "rndr_***REDACTED***" },
+  { pattern: /\bvcp_[A-Za-z0-9_-]{20,}/g, replacement: "vcp_***REDACTED***" },
   { pattern: /\bsbp_[A-Za-z0-9_-]{20,}/g, replacement: "sbp_***REDACTED***" },
-  { pattern: /\beyJ[A-Za-z0-9_-]{40,}/g, replacement: "***JWT_REDACTED***" },
+  { pattern: /\beyJ[A-Za-z0-9_.-]{40,}/g, replacement: "***JWT_REDACTED***" },
   { pattern: /Authorization:\s*Bearer\s+\S+/gi, replacement: "Authorization: Bearer ***REDACTED***" },
   { pattern: /apikey:\s*\S+/gi, replacement: "apikey: ***REDACTED***" },
   { pattern: /api_key[=:]\s*\S+/gi, replacement: "api_key=***REDACTED***" },

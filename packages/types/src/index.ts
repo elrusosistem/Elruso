@@ -87,6 +87,7 @@ export interface FileChange {
   run_id: string;
   path: string;
   change_type: FileChangeType;
+  diffstat: string | null;
 }
 
 export interface RunDetail extends RunLog {
@@ -95,7 +96,7 @@ export interface RunDetail extends RunLog {
 }
 
 // ─── Decisions Log ──────────────────────────────────────────────────
-export type DecisionSource = "gpt" | "human" | "system";
+export type DecisionSource = "gpt" | "human" | "system" | "runner";
 
 export interface DecisionLog {
   id: string;
@@ -105,6 +106,7 @@ export interface DecisionLog {
   decision_value: Record<string, unknown>;
   context: Record<string, unknown> | null;
   run_id: string | null;
+  directive_id: string | null;
 }
 
 // ─── API responses ───────────────────────────────────────────────────

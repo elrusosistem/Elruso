@@ -7,6 +7,7 @@ import { DirectivesList } from "./pages/DirectivesList";
 import { TasksList } from "./pages/TasksList";
 import { SetupWizard } from "./pages/SetupWizard";
 import { RunnersList } from "./pages/RunnersList";
+import { DecisionsList } from "./pages/DecisionsList";
 
 function useHash() {
   const [hash, setHash] = useState(window.location.hash);
@@ -90,6 +91,7 @@ const NAV_ITEMS = [
   { path: "#/tasks", label: "Tasks", match: "#/tasks" },
   { path: "#/runners", label: "Runners", match: "#/runners" },
   { path: "#/directives", label: "Directivas", match: "#/directives" },
+  { path: "#/decisions", label: "Decisions", match: "#/decisions" },
   { path: "#/requests", label: "Requests", match: "#/requests" },
   { path: "#/setup", label: "Setup", match: "#/setup" },
 ];
@@ -106,6 +108,8 @@ export function App() {
     page = <RequestsList />;
   } else if (hash === "#/directives") {
     page = <DirectivesList />;
+  } else if (hash === "#/decisions") {
+    page = <DecisionsList />;
   } else if (hash === "#/tasks") {
     page = <TasksList />;
   } else if (hash === "#/runners") {

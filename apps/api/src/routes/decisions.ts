@@ -25,6 +25,7 @@ export async function decisionsRoutes(app: FastifyInstance): Promise<void> {
       decision_value: Record<string, unknown>;
       context?: Record<string, unknown>;
       run_id?: string;
+      directive_id?: string;
     };
   }>("/ops/decisions", async (request): Promise<ApiResponse<DecisionLog>> => {
     const body = request.body as {
@@ -33,13 +34,14 @@ export async function decisionsRoutes(app: FastifyInstance): Promise<void> {
       decision_value: Record<string, unknown>;
       context?: Record<string, unknown>;
       run_id?: string;
+      directive_id?: string;
     };
 
     if (!body.decision_key) {
       return { ok: false, error: "decision_key es requerido" };
     }
 
-    const validSources = ["gpt", "human", "system"];
+    const validSources = ["gpt", "human", "system", "runner"];
     const source = body.source || "system";
     if (!validSources.includes(source)) {
       return { ok: false, error: `source invalido. Opciones: ${validSources.join(", ")}` };
@@ -51,6 +53,7 @@ export async function decisionsRoutes(app: FastifyInstance): Promise<void> {
       decision_value: body.decision_value ?? {},
       context: body.context ?? null,
       run_id: body.run_id ?? null,
+      directive_id: body.directive_id ?? null,
     };
 
     const db = getDb();
@@ -72,6 +75,7 @@ export async function decisionsRoutes(app: FastifyInstance): Promise<void> {
   app.get("/ops/decisions", async (request): Promise<ApiResponse<DecisionLog[]>> => {
     const url = new URL(request.url, "http://localhost");
     const runId = url.searchParams.get("run_id");
+    const directiveId = url.searchParams.get("directive_id");
     const limitParam = url.searchParams.get("limit");
     const offsetParam = url.searchParams.get("offset");
 
@@ -87,6 +91,9 @@ export async function decisionsRoutes(app: FastifyInstance): Promise<void> {
 
     if (runId) {
       query = query.eq("run_id", runId);
+    }
+    if (directiveId) {
+      query = query.eq("directive_id", directiveId);
     }
 
     const { data, error, count } = await query;
