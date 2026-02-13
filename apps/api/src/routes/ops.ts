@@ -13,14 +13,14 @@ function logDecision(opts: {
   directive_id?: string | null;
 }): void {
   const db = getDb();
-  void db.from("decisions_log").insert({
+  db.from("decisions_log").insert({
     source: opts.source,
     decision_key: opts.decision_key,
     decision_value: opts.decision_value,
     context: opts.context ?? null,
     run_id: opts.run_id ?? null,
     directive_id: opts.directive_id ?? null,
-  });
+  }).then(() => {}, () => {});
 }
 
 // ─── Types locales ──────────────────────────────────────────────────
