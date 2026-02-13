@@ -8,7 +8,7 @@ interface Directive {
   id: string;
   created_at: string;
   source: string;
-  status: "PENDING" | "APPLIED" | "REJECTED";
+  status: "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "APPLIED";
   title: string;
   body: string;
   acceptance_criteria: string[];
@@ -231,7 +231,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       const entry = {
         id: body.id,
         source: body.source || "gpt",
-        status: body.status || "PENDING",
+        status: body.status || "PENDING_REVIEW",
         title: body.title,
         body: body.body || "",
         acceptance_criteria: body.acceptance_criteria || [],
@@ -259,7 +259,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         rejection_reason?: string;
       };
 
-      const validStatuses = ["PENDING", "APPLIED", "REJECTED"];
+      const validStatuses = ["PENDING_REVIEW", "APPROVED", "REJECTED", "APPLIED"];
       if (!validStatuses.includes(status)) {
         return { ok: false, error: `Status invalido. Opciones: ${validStatuses.join(", ")}` };
       }
@@ -359,7 +359,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
-  // POST /ops/tasks/claim — Atomic claim with eligibility check (deps + next_run_at)
+  // POST /ops/tasks/claim — Atomic claim with eligibility check (deps + next_run_at + system_paused)
   app.post<{ Body: { task_id: string; runner_id: string } }>(
     "/ops/tasks/claim",
     async (request, reply): Promise<ApiResponse<TaskEntry>> => {
@@ -371,6 +371,21 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
       const db = getDb();
       const now = new Date().toISOString();
+
+      // 0. Verificar si el sistema está pausado
+      const { data: systemState, error: stateError } = await db
+        .from("ops_state")
+        .select("value")
+        .eq("key", "system_paused")
+        .single();
+
+      if (!stateError && systemState) {
+        const isPaused = systemState.value === true || systemState.value === "true";
+        if (isPaused) {
+          reply.code(423); // 423 Locked
+          return { ok: false, error: "system_paused" };
+        }
+      }
 
       // 1. Verificar deps: obtener task y chequear que depends_on estén DONE
       const { data: taskData, error: fetchError } = await db
@@ -680,4 +695,126 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       },
     };
   });
+
+  // ─── SYSTEM CONTROL (PAUSE/RESUME) ───────────────────────────────────
+
+  // GET /ops/system/status — Estado actual del sistema
+  app.get("/ops/system/status", async (): Promise<ApiResponse<{ paused: boolean; updated_at: string | null }>> => {
+    const db = getDb();
+    const { data, error } = await db
+      .from("ops_state")
+      .select("value, updated_at")
+      .eq("key", "system_paused")
+      .single();
+
+    if (error || !data) {
+      return { ok: true, data: { paused: false, updated_at: null } };
+    }
+
+    const paused = data.value === true || data.value === "true";
+    return { ok: true, data: { paused, updated_at: data.updated_at || null } };
+  });
+
+  // POST /ops/system/pause — Pausar claims (requiere X-ADMIN-TOKEN)
+  app.post("/ops/system/pause", async (request, reply): Promise<ApiResponse<{ paused: boolean }>> => {
+    // TODO: verificar X-ADMIN-TOKEN en Fase 6
+    const db = getDb();
+    const { error } = await db
+      .from("ops_state")
+      .upsert({ key: "system_paused", value: true, updated_at: new Date().toISOString() }, { onConflict: "key" });
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+
+    return { ok: true, data: { paused: true } };
+  });
+
+  // POST /ops/system/resume — Reanudar claims (requiere X-ADMIN-TOKEN)
+  app.post("/ops/system/resume", async (request, reply): Promise<ApiResponse<{ paused: boolean }>> => {
+    // TODO: verificar X-ADMIN-TOKEN en Fase 6
+    const db = getDb();
+    const { error } = await db
+      .from("ops_state")
+      .upsert({ key: "system_paused", value: false, updated_at: new Date().toISOString() }, { onConflict: "key" });
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+
+    return { ok: true, data: { paused: false } };
+  });
+
+  // ─── DIRECTIVE APPLICATION ───────────────────────────────────────────
+
+  // POST /ops/directives/:id/apply — Aplicar directiva aprobada (requiere X-ADMIN-TOKEN)
+  app.post<{ Params: { id: string } }>(
+    "/ops/directives/:id/apply",
+    async (request, reply): Promise<ApiResponse<{ directive_id: string; tasks_created: number }>> => {
+      const { id } = request.params;
+
+      // TODO: verificar X-ADMIN-TOKEN en Fase 6
+
+      const db = getDb();
+
+      // 1. Obtener directiva
+      const { data: directive, error: fetchError } = await db
+        .from("ops_directives")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (fetchError || !directive) {
+        reply.code(404);
+        return { ok: false, error: "directive_not_found" };
+      }
+
+      // 2. Verificar que esté aprobada
+      if (directive.status !== "APPROVED") {
+        reply.code(400);
+        return { ok: false, error: `directive_not_approved (status: ${directive.status})` };
+      }
+
+      // 3. Crear tasks desde tasks_to_create
+      const tasksToCreate = (directive.tasks_to_create as unknown[]) || [];
+      const created: string[] = [];
+
+      for (const task of tasksToCreate) {
+        const taskEntry = task as TaskEntry;
+        const { error: insertError } = await db
+          .from("ops_tasks")
+          .upsert(
+            {
+              id: taskEntry.id,
+              phase: taskEntry.phase || 0,
+              title: taskEntry.title,
+              status: taskEntry.status || "ready",
+              branch: taskEntry.branch || "main",
+              depends_on: taskEntry.depends_on || [],
+              blocked_by: taskEntry.blocked_by || [],
+              directive_id: id,
+              max_attempts: taskEntry.max_attempts || 3,
+            },
+            { onConflict: "id" }
+          );
+
+        if (!insertError) {
+          created.push(taskEntry.id);
+        }
+      }
+
+      // 4. Marcar directiva como APPLIED
+      await db
+        .from("ops_directives")
+        .update({
+          status: "APPLIED",
+          applied_at: new Date().toISOString(),
+          applied_by: "human",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id);
+
+      return { ok: true, data: { directive_id: id, tasks_created: created.length } };
+    }
+  );
 }

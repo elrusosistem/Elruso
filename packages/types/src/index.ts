@@ -32,7 +32,7 @@ export interface OpsRequest {
 }
 
 // ─── Directives ─────────────────────────────────────────────────────
-export type DirectiveStatus = "pending" | "applied" | "rejected";
+export type DirectiveStatus = "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "APPLIED";
 
 export interface Directive {
   id: string;
@@ -41,7 +41,16 @@ export interface Directive {
   payload: Record<string, unknown>;
   status: DirectiveStatus;
   applied_at?: string;
+  applied_by?: string;
+  rejection_reason?: string;
   created_at: string;
+}
+
+// ─── System State ───────────────────────────────────────────────────
+export interface SystemState {
+  key: string;
+  value: boolean | string | number | Record<string, unknown>;
+  updated_at: string;
 }
 
 // ─── Run Recorder ────────────────────────────────────────────────────

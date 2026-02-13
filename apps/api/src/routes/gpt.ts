@@ -234,11 +234,11 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
     let tasksCreated = 0;
 
     for (const dir of directives) {
-      // Guardar directiva
+      // Guardar directiva con status PENDING_REVIEW (requiere aprobación humana)
       await db.from("ops_directives").upsert({
         id: dir.id,
         source: "gpt",
-        status: "PENDING",
+        status: "PENDING_REVIEW",
         title: dir.title,
         body: dir.body,
         acceptance_criteria: dir.acceptance_criteria,
@@ -246,39 +246,24 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
         created_at: new Date().toISOString(),
       }, { onConflict: "id" });
 
-      // Crear tasks asociadas
-      if (dir.tasks_to_create && dir.tasks_to_create.length > 0) {
-        for (const task of dir.tasks_to_create) {
-          // Generar ID para la task
-          const taskId = `T-GPT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-
-          await db.from("ops_tasks").insert({
-            id: taskId,
-            phase: task.phase || 2,
-            title: task.title,
-            status: "ready",
-            branch: `task/${taskId}`,
-            depends_on: task.depends_on || [],
-            blocked_by: task.blocked_by || [],
-            directive_id: dir.id,
-          });
-          tasksCreated++;
-        }
-      }
+      // NO crear tasks automáticamente — requiere aprobación humana
+      // El humano debe:
+      // 1. PATCH /ops/directives/:id { status: "APPROVED" }
+      // 2. POST /ops/directives/:id/apply (crea tasks)
     }
 
     request.log.info({
       directives: directives.length,
-      tasks: tasksCreated,
+      tasks: 0, // Ya no se crean tasks automáticamente
       model,
       tokens: usage?.total_tokens,
-    }, "GPT run completado");
+    }, "GPT run completado (directivas en PENDING_REVIEW)");
 
     return {
       ok: true,
       data: {
         directives_created: directives.length,
-        tasks_created: tasksCreated,
+        tasks_created: 0, // Requiere aprobación humana
         directives,
         model,
         usage,

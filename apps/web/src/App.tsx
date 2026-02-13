@@ -42,6 +42,49 @@ function StatusBadge() {
   );
 }
 
+function PauseControl() {
+  const [paused, setPaused] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
+
+  const fetchStatus = () => {
+    fetch("/api/ops/system/status")
+      .then((r) => r.json())
+      .then((data: ApiResponse<{ paused: boolean }>) => {
+        if (data.ok && data.data) setPaused(data.data.paused);
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 10000); // Poll cada 10s
+    return () => clearInterval(interval);
+  }, []);
+
+  const toggle = async () => {
+    setLoading(true);
+    const endpoint = paused ? "/api/ops/system/resume" : "/api/ops/system/pause";
+    await fetch(endpoint, { method: "POST" });
+    fetchStatus();
+    setLoading(false);
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={loading}
+      className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs transition-colors ${
+        paused
+          ? "bg-red-700 hover:bg-red-600"
+          : "bg-gray-800 hover:bg-gray-700"
+      }`}
+    >
+      <span className={`w-2 h-2 rounded-full ${paused ? "bg-red-400" : "bg-green-500"}`} />
+      {loading ? "..." : paused ? "Sistema PAUSADO" : "Sistema ACTIVO"}
+    </button>
+  );
+}
+
 const NAV_ITEMS = [
   { path: "#/runs", label: "Runs", match: "#/runs" },
   { path: "#/tasks", label: "Tasks", match: "#/tasks" },
@@ -94,7 +137,10 @@ export function App() {
             </a>
           ))}
         </div>
-        <StatusBadge />
+        <div className="flex items-center gap-3">
+          <PauseControl />
+          <StatusBadge />
+        </div>
       </nav>
       {page}
     </div>

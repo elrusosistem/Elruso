@@ -5,7 +5,7 @@ interface Directive {
   id: string;
   created_at: string;
   source: string;
-  status: "PENDING" | "APPLIED" | "REJECTED";
+  status: "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "APPLIED";
   title: string;
   body: string;
   acceptance_criteria: string[];
@@ -15,7 +15,8 @@ interface Directive {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  PENDING: "bg-blue-500",
+  PENDING_REVIEW: "bg-yellow-500",
+  APPROVED: "bg-blue-500",
   APPLIED: "bg-green-500",
   REJECTED: "bg-red-500",
 };
@@ -46,6 +47,19 @@ export function DirectivesList() {
       body: JSON.stringify({ status, rejection_reason }),
     });
     fetchDirectives();
+  };
+
+  const applyDirective = async (id: string) => {
+    const response = await fetch(`/api/ops/directives/${id}/apply`, {
+      method: "POST",
+    });
+    const data = await response.json();
+    if (data.ok) {
+      alert(`Directiva aplicada: ${data.data.tasks_created} tasks creadas`);
+      fetchDirectives();
+    } else {
+      alert(`Error: ${data.error}`);
+    }
   };
 
   if (loading) return <div className="p-8 text-gray-400">Cargando directivas...</div>;
@@ -134,13 +148,14 @@ export function DirectivesList() {
                 </div>
               )}
 
-              {selectedDir.status === "PENDING" && (
+              {/* Botones de aprobación para PENDING_REVIEW */}
+              {selectedDir.status === "PENDING_REVIEW" && (
                 <div className="flex gap-2 mt-4 pt-4 border-t border-gray-700">
                   <button
-                    onClick={() => updateStatus(selectedDir.id, "APPLIED")}
-                    className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded text-sm transition-colors"
+                    onClick={() => updateStatus(selectedDir.id, "APPROVED")}
+                    className="px-4 py-2 bg-blue-700 hover:bg-blue-600 rounded text-sm transition-colors"
                   >
-                    Marcar como Aplicada
+                    ✓ Aprobar
                   </button>
                   <button
                     onClick={() => {
@@ -149,7 +164,22 @@ export function DirectivesList() {
                     }}
                     className="px-4 py-2 bg-red-700 hover:bg-red-600 rounded text-sm transition-colors"
                   >
-                    Rechazar
+                    ✗ Rechazar
+                  </button>
+                </div>
+              )}
+
+              {/* Botón de aplicación para APPROVED */}
+              {selectedDir.status === "APPROVED" && (
+                <div className="mt-4 pt-4 border-t border-gray-700">
+                  <div className="mb-3 text-sm text-yellow-400">
+                    ⚠ Esta directiva creará {selectedDir.tasks_to_create.length} task(s) ejecutables.
+                  </div>
+                  <button
+                    onClick={() => applyDirective(selectedDir.id)}
+                    className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded text-sm transition-colors"
+                  >
+                    🚀 Aplicar y Crear Tasks
                   </button>
                 </div>
               )}
