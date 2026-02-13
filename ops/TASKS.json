@@ -1,14 +1,5 @@
 [
   {
-    "id": "T-LOOP-001",
-    "phase": 1,
-    "title": "Loop minimo: task dummy para verificar runner -> run -> steps -> panel",
-    "status": "done",
-    "branch": "main",
-    "depends_on": [],
-    "blocked_by": []
-  },
-  {
     "id": "T-000",
     "phase": 0,
     "title": "Bootstrap monorepo + /ops + scripts + CI",
@@ -248,6 +239,85 @@
     "depends_on": [
       "T-060"
     ],
+    "blocked_by": []
+  },
+  {
+    "id": "T-GPT-1770614805494-61sp",
+    "phase": 7,
+    "title": "CI/CD: deploy automático a Render (API y Worker) vía GitHub Actions",
+    "status": "done",
+    "branch": "task/T-GPT-1770614805494-61sp",
+    "depends_on": [
+      "T-061"
+    ],
+    "blocked_by": [
+      "REQ-002",
+      "REQ-007"
+    ],
+    "directive_id": "DIR-063"
+  },
+  {
+    "id": "T-GPT-1770614805758-7ya6",
+    "phase": 7,
+    "title": "CI/CD: deploy automático a Vercel (panel web) vía GitHub Actions",
+    "status": "done",
+    "branch": "task/T-GPT-1770614805758-7ya6",
+    "depends_on": [
+      "T-061"
+    ],
+    "blocked_by": [
+      "REQ-003",
+      "REQ-008"
+    ],
+    "directive_id": "DIR-064"
+  },
+  {
+    "id": "T-GPT-1770951852662-qvll",
+    "phase": 2,
+    "title": "Test de POST /runs, /directives y /tasks desde panel y CLI",
+    "status": "ready",
+    "branch": "task/T-GPT-1770951852662-qvll",
+    "depends_on": [
+      "T-020",
+      "T-021",
+      "T-022"
+    ],
+    "blocked_by": [],
+    "directive_id": "DIR-065"
+  },
+  {
+    "id": "T-GPT-1770951852990-ek6p",
+    "phase": 1,
+    "title": "Actualizar y limpiar docs y types en /ops",
+    "status": "ready",
+    "branch": "task/T-GPT-1770951852990-ek6p",
+    "depends_on": [
+      "T-017"
+    ],
+    "blocked_by": [],
+    "directive_id": "DIR-066"
+  },
+  {
+    "id": "T-GPT-1770951853290-y93a",
+    "phase": 2,
+    "title": "Test de sincronización con ops_sync_push.sh y ops_sync_pull.sh",
+    "status": "ready",
+    "branch": "task/T-GPT-1770951853290-y93a",
+    "depends_on": [
+      "T-020",
+      "T-021",
+      "T-022"
+    ],
+    "blocked_by": [],
+    "directive_id": "DIR-067"
+  },
+  {
+    "id": "T-LOOP-001",
+    "phase": 1,
+    "title": "Loop minimo: task dummy para verificar runner -> run -> steps -> panel",
+    "status": "done",
+    "branch": "main",
+    "depends_on": [],
     "blocked_by": []
   }
 ]

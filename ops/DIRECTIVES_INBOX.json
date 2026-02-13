@@ -1,1 +1,158 @@
-[]
+[
+  {
+    "id": "DIR-067",
+    "created_at": "2026-02-13T03:04:13.123+00:00",
+    "source": "gpt",
+    "status": "PENDING_REVIEW",
+    "title": "Test de scripts de sincronización: ops_sync_push.sh y ops_sync_pull.sh",
+    "body": "Ejecutar y validar los scripts `ops_sync_push.sh` y `ops_sync_pull.sh` en modo dry-run y real, asegurando que sincronizan correctamente los archivos `/ops/*.json` con la base de datos (en ambos sentidos). Documentar los resultados y comandos de verificación en `/ops/SYNC_TESTS.md`. Esto garantiza que el flujo de bootstrap y edición manual sigue funcionando bajo DEC-011.",
+    "acceptance_criteria": [
+      "Los scripts sincronizan correctamente archivos y DB en ambos sentidos",
+      "El modo dry-run muestra los cambios sin aplicarlos",
+      "Los resultados y comandos de verificación están documentados en `/ops/SYNC_TESTS.md`"
+    ],
+    "tasks_to_create": [
+      {
+        "phase": 2,
+        "title": "Test de sincronización con ops_sync_push.sh y ops_sync_pull.sh",
+        "blocked_by": [],
+        "depends_on": [
+          "T-020",
+          "T-021",
+          "T-022"
+        ]
+      }
+    ],
+    "applied_at": null,
+    "applied_by": null,
+    "rejection_reason": null
+  },
+  {
+    "id": "DIR-066",
+    "created_at": "2026-02-13T03:04:12.83+00:00",
+    "source": "gpt",
+    "status": "PENDING_REVIEW",
+    "title": "Actualizar y limpiar documentación de scripts y tipos en /ops",
+    "body": "Revisar y actualizar toda la documentación en `/ops`, asegurando que los scripts reflejen el flujo actual (sin referencias obsoletas al acceso directo a archivos o a stock). Eliminar cualquier referencia a mecanismos deprecated y asegurar que los tipos estén alineados con la fuente de verdad en la base de datos. Esto facilita el onboarding y reduce errores por documentación desactualizada.",
+    "acceptance_criteria": [
+      "Toda la documentación en `/ops` refleja el flujo actual basado en DB como source of truth",
+      "No quedan referencias a archivos deprecated ni a mecanismos antiguos",
+      "Los tipos en el código y en la documentación coinciden con la estructura real de la base de datos"
+    ],
+    "tasks_to_create": [
+      {
+        "phase": 1,
+        "title": "Actualizar y limpiar docs y types en /ops",
+        "blocked_by": [],
+        "depends_on": [
+          "T-017"
+        ]
+      }
+    ],
+    "applied_at": null,
+    "applied_by": null,
+    "rejection_reason": null
+  },
+  {
+    "id": "DIR-065",
+    "created_at": "2026-02-13T03:04:12.479+00:00",
+    "source": "gpt",
+    "status": "PENDING_REVIEW",
+    "title": "Completar memoria real: test de POST /runs, /directives y /tasks desde panel y CLI",
+    "body": "Realizar pruebas integrales para verificar que los endpoints POST /runs, POST /directives y POST /tasks funcionan correctamente tanto desde el panel web como desde los scripts CLI. Esto asegura que la sincronización y creación de registros en la base de datos es robusta y reproducible, cumpliendo la decisión DEC-011. Documentar los comandos de prueba y ejemplos de payloads en `/ops/API_TESTS.md`.",
+    "acceptance_criteria": [
+      "Se pueden crear runs, directivas y tasks desde el panel y desde scripts CLI usando los endpoints correspondientes",
+      "Las pruebas generan registros visibles en la base de datos y en el panel",
+      "Los comandos y ejemplos de payloads están documentados en `/ops/API_TESTS.md`",
+      "Las pruebas son reproducibles por CLI"
+    ],
+    "tasks_to_create": [
+      {
+        "phase": 2,
+        "title": "Test de POST /runs, /directives y /tasks desde panel y CLI",
+        "blocked_by": [],
+        "depends_on": [
+          "T-020",
+          "T-021",
+          "T-022"
+        ]
+      }
+    ],
+    "applied_at": null,
+    "applied_by": null,
+    "rejection_reason": null
+  },
+  {
+    "id": "AUDIT-DIR",
+    "created_at": "2026-02-13T02:06:36.513+00:00",
+    "source": "gpt",
+    "status": "PENDING_REVIEW",
+    "title": "Test directive",
+    "body": "",
+    "acceptance_criteria": [],
+    "tasks_to_create": [],
+    "applied_at": null,
+    "applied_by": null,
+    "rejection_reason": null
+  },
+  {
+    "id": "DIR-064",
+    "created_at": "2026-02-09T05:26:45.643+00:00",
+    "source": "gpt",
+    "status": "REJECTED",
+    "title": "Configurar deploy automático a Vercel para el panel web",
+    "body": "Implementar el pipeline de CI/CD para que, al hacer merge a main, se despliegue automáticamente el panel web en Vercel (staging). Usar GitHub Actions y scripts reproducibles por CLI. El deploy a producción debe seguir siendo manual. Documentar los comandos y variables necesarias en `/ops/DEPLOY.md` y actualizar `.env.example`.",
+    "acceptance_criteria": [
+      "Al hacer merge a main, Vercel recibe y ejecuta el deploy del panel web a staging automáticamente",
+      "El deploy a producción solo ocurre mediante un script manual reproducible por CLI",
+      "Todos los comandos y variables requeridas están documentados en `/ops/DEPLOY.md` y `.env.example`",
+      "No se suben secrets al repo"
+    ],
+    "tasks_to_create": [
+      {
+        "phase": 7,
+        "title": "CI/CD: deploy automático a Vercel (panel web) vía GitHub Actions",
+        "blocked_by": [
+          "REQ-003",
+          "REQ-008"
+        ],
+        "depends_on": [
+          "T-061"
+        ]
+      }
+    ],
+    "applied_at": null,
+    "applied_by": null,
+    "rejection_reason": "REJECTED (objective mismatch)"
+  },
+  {
+    "id": "DIR-063",
+    "created_at": "2026-02-09T05:26:45.351+00:00",
+    "source": "gpt",
+    "status": "PENDING_REVIEW",
+    "title": "Configurar deploy automático a Render para API y Worker",
+    "body": "Implementar el pipeline de CI/CD para que, al hacer merge a main, se despliegue automáticamente la API y el Worker en Render. Utilizar GitHub Actions, asegurando que los scripts sean completamente reproducibles por CLI. El deploy a producción debe seguir siendo manual, solo staging es automático. Documentar los comandos en `/ops/DEPLOY.md` y actualizar `.env.example` con los placeholders necesarios.",
+    "acceptance_criteria": [
+      "Al hacer merge a main, Render recibe y ejecuta el deploy de API y Worker a staging automáticamente",
+      "El deploy a producción solo ocurre mediante un script manual reproducible por CLI",
+      "Todos los comandos y variables requeridas están documentados en `/ops/DEPLOY.md` y `.env.example`",
+      "No se suben secrets al repo"
+    ],
+    "tasks_to_create": [
+      {
+        "phase": 7,
+        "title": "CI/CD: deploy automático a Render (API y Worker) vía GitHub Actions",
+        "blocked_by": [
+          "REQ-002",
+          "REQ-007"
+        ],
+        "depends_on": [
+          "T-061"
+        ]
+      }
+    ],
+    "applied_at": null,
+    "applied_by": null,
+    "rejection_reason": null
+  }
+]
