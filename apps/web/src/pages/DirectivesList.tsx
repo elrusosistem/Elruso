@@ -67,6 +67,8 @@ export function DirectivesList() {
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [gptRunning, setGptRunning] = useState(false);
+  const [gptMessage, setGptMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   const fetchDirectives = () => {
     fetch("/api/ops/directives")
@@ -80,6 +82,46 @@ export function DirectivesList() {
   };
 
   useEffect(() => { fetchDirectives(); }, []);
+
+  const runGpt = async () => {
+    // Check if system is paused
+    try {
+      const sysRes = await fetch("/api/ops/system/status");
+      const sysData: ApiResponse<{ paused: boolean }> = await sysRes.json();
+      if (sysData.ok && sysData.data?.paused) {
+        const ok = confirm("El sistema esta pausado. ¿Generar directivas de todas formas?");
+        if (!ok) return;
+      }
+    } catch {
+      // Can't check — proceed anyway
+    }
+
+    setGptRunning(true);
+    setGptMessage(null);
+    try {
+      const res = await fetch("/api/ops/gpt/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        const count = data.data?.directives_created ?? data.data?.length ?? "?";
+        setGptMessage({ type: "ok", text: `GPT completo — ${count} directiva(s) creada(s)` });
+        fetchDirectives();
+      } else {
+        const msg = res.status === 404
+          ? "Endpoint /ops/gpt/run no disponible en API"
+          : data.error ?? `Error ${res.status}`;
+        setGptMessage({ type: "error", text: msg });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Error de red";
+      setGptMessage({ type: "error", text: msg });
+    } finally {
+      setGptRunning(false);
+    }
+  };
 
   const updateStatus = async (id: string, status: string, rejection_reason?: string) => {
     await fetch(`/api/ops/directives/${id}`, {
@@ -107,11 +149,37 @@ export function DirectivesList() {
   if (loading) return <div className="p-8 text-gray-400">Cargando directivas...</div>;
   if (error) return <div className="p-8 text-red-400">{error}</div>;
 
+  const gptButton = (
+    <div className="mb-6">
+      <div className="flex items-center gap-4">
+        <button
+          onClick={runGpt}
+          disabled={gptRunning}
+          className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+            gptRunning
+              ? "bg-gray-600 cursor-not-allowed text-gray-400"
+              : "bg-indigo-600 hover:bg-indigo-500 text-white"
+          }`}
+        >
+          {gptRunning ? "Generando..." : "Run GPT"}
+        </button>
+        {gptMessage && (
+          <span
+            className={`text-sm ${gptMessage.type === "ok" ? "text-green-400" : "text-red-400"}`}
+          >
+            {gptMessage.text}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
   if (directives.length === 0) {
     return (
       <div className="p-8 text-gray-500">
         <h2 className="text-2xl font-bold mb-4 text-white">Directivas</h2>
-        <p>Sin directivas. Ejecutar <code className="bg-gray-800 px-1 rounded">POST /ops/gpt/run</code> para generar.</p>
+        {gptButton}
+        <p>Sin directivas. Usa el boton "Run GPT" para generar.</p>
       </div>
     );
   }
@@ -122,7 +190,8 @@ export function DirectivesList() {
 
   return (
     <div className="p-8">
-      <h2 className="text-2xl font-bold mb-6">Directivas</h2>
+      <h2 className="text-2xl font-bold mb-4">Directivas</h2>
+      {gptButton}
       <div className="flex gap-6">
         {/* Lista */}
         <div className="w-1/3 space-y-2">
