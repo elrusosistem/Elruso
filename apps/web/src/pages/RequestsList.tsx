@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse, OpsRequest, RequestStatus } from "@elruso/types";
 import { apiFetch } from "../api";
+import { useUiMode } from "../uiMode";
 
 const STATUS_COLORS: Record<string, string> = {
   WAITING: "bg-yellow-500",
   PROVIDED: "bg-green-500",
   REJECTED: "bg-red-500",
+  MISSING: "bg-red-500",
 };
 
 interface ValueInputs {
@@ -24,6 +26,8 @@ export function RequestsList() {
   const [valueStatuses, setValueStatuses] = useState<ValueStatus>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [mode] = useUiMode();
+  const isOp = mode === "operator";
 
   const fetchRequests = () => {
     apiFetch("/api/ops/requests")
@@ -31,7 +35,6 @@ export function RequestsList() {
       .then((data: ApiResponse<OpsRequest[]>) => {
         if (data.ok && data.data) {
           setRequests(data.data);
-          // Fetch value status for each request
           data.data.forEach((req) => {
             apiFetch(`/api/ops/requests/${req.id}/value/status`)
               .then((r) => r.json())
@@ -76,7 +79,6 @@ export function RequestsList() {
       return;
     }
 
-    // Filter out empty values
     const cleanValues: Record<string, string> = {};
     for (const [k, v] of Object.entries(values)) {
       if (v.trim()) cleanValues[k] = v.trim();
@@ -92,7 +94,7 @@ export function RequestsList() {
       });
       const data: ApiResponse<{ saved: boolean; env_runtime: string }> = await res.json();
       if (data.ok) {
-        setMessage(`Guardado. .env.runtime generado. Reiniciar API para aplicar.`);
+        setMessage(isOp ? "Guardado correctamente." : "Guardado. .env.runtime generado. Reiniciar API para aplicar.");
         setValueInputs((prev) => ({ ...prev, [req.id]: {} }));
         fetchRequests();
       } else {
@@ -105,9 +107,141 @@ export function RequestsList() {
     }
   };
 
-  if (loading) return <div className="p-8 text-gray-400">Cargando requests...</div>;
+  if (loading) return <div className="p-8 text-gray-400">{isOp ? "Cargando configuracion..." : "Cargando requests..."}</div>;
   if (error) return <div className="p-8 text-red-400">{error}</div>;
 
+  // Split into pending and provided for operator mode
+  const pending = requests.filter((r) => r.status === "WAITING" || r.status === "MISSING" as string);
+  const provided = requests.filter((r) => r.status === "PROVIDED");
+  const rejected = requests.filter((r) => r.status === "REJECTED");
+
+  if (isOp) {
+    return (
+      <div className="p-8">
+        <h2 className="text-2xl font-bold mb-2">Configuracion</h2>
+        <p className="text-sm text-gray-400 mb-6">
+          Datos que el sistema necesita para funcionar. Los valores se guardan de forma segura.
+        </p>
+
+        {message && (
+          <div className="mb-4 p-3 bg-blue-900/50 border border-blue-700 rounded text-sm text-blue-200">
+            {message}
+          </div>
+        )}
+
+        {/* Pending / Missing section */}
+        {pending.length > 0 && (
+          <div className="mb-8">
+            <h3 className="text-lg font-semibold mb-3 text-yellow-400">Faltan configurar</h3>
+            <p className="text-sm text-gray-400 mb-4">Sin esto el sistema no puede avanzar.</p>
+            <div className="space-y-4">
+              {pending.map((req) => (
+                <div key={req.id} className="bg-gray-800 rounded-lg p-4 border-l-4 border-yellow-500">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`w-2 h-2 rounded-full ${STATUS_COLORS[req.status] ?? "bg-gray-500"}`} />
+                    <span className="font-medium">{req.purpose}</span>
+                    <span className="text-xs px-2 py-0.5 bg-gray-700 rounded">{req.service}</span>
+                  </div>
+
+                  {req.type !== "tool" ? (
+                    <div className="mt-3">
+                      <div className="space-y-2">
+                        {req.scopes.map((scope) => (
+                          <div key={scope} className="flex items-center gap-2">
+                            <label className="text-xs text-gray-400 w-48 flex-shrink-0">{scope}</label>
+                            <input
+                              type="password"
+                              placeholder={`Pegar ${scope}...`}
+                              value={valueInputs[req.id]?.[scope] ?? ""}
+                              onChange={(e) => handleInputChange(req.id, scope, e.target.value)}
+                              className="flex-1 text-xs bg-gray-900 border border-gray-600 rounded px-2 py-1.5 text-gray-200 placeholder-gray-600 focus:border-blue-500 focus:outline-none"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <button
+                          onClick={() => saveValues(req)}
+                          disabled={saving === req.id}
+                          className="text-xs px-4 py-1.5 bg-green-700 hover:bg-green-600 disabled:bg-gray-600 rounded transition-colors"
+                        >
+                          {saving === req.id ? "Guardando..." : "Configurar"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-3">
+                      <p className="text-xs text-gray-400 mb-2">
+                        Herramienta que debe instalarse manualmente.
+                      </p>
+                      <button
+                        onClick={() => updateStatus(req.id, "PROVIDED")}
+                        className="text-xs px-4 py-1.5 bg-green-700 hover:bg-green-600 rounded transition-colors"
+                      >
+                        Marcar como instalado
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Provided section */}
+        {provided.length > 0 && (
+          <div className="mb-8">
+            <h3 className="text-lg font-semibold mb-3 text-green-400">Configuradas</h3>
+            <div className="space-y-2">
+              {provided.map((req) => (
+                <div key={req.id} className="bg-gray-800 rounded-lg p-4 flex items-center gap-3">
+                  <span className="w-2 h-2 rounded-full bg-green-500" />
+                  <span className="flex-1">{req.purpose}</span>
+                  <span className="text-xs px-2 py-0.5 bg-gray-700 rounded">{req.service}</span>
+                  {valueStatuses[req.id] && (
+                    <span className="text-xs px-2 py-0.5 bg-green-900 text-green-300 rounded">OK</span>
+                  )}
+                  <button
+                    onClick={() => updateStatus(req.id, "WAITING")}
+                    className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                  >
+                    Reconfigurar
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Rejected section */}
+        {rejected.length > 0 && (
+          <div>
+            <h3 className="text-lg font-semibold mb-3 text-red-400">Rechazadas</h3>
+            <div className="space-y-2">
+              {rejected.map((req) => (
+                <div key={req.id} className="bg-gray-800 rounded-lg p-4 flex items-center gap-3">
+                  <span className="w-2 h-2 rounded-full bg-red-500" />
+                  <span className="flex-1">{req.purpose}</span>
+                  <button
+                    onClick={() => updateStatus(req.id, "WAITING")}
+                    className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                  >
+                    Reconfigurar
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {requests.length === 0 && (
+          <p className="text-gray-500">Todo configurado. No se necesitan datos adicionales.</p>
+        )}
+      </div>
+    );
+  }
+
+  // Technical mode: original layout
   return (
     <div className="p-8">
       <h2 className="text-2xl font-bold mb-2">Requests</h2>

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse, RunLog } from "@elruso/types";
 import { apiFetch } from "../api";
+import { useUiMode } from "../uiMode";
+import { humanizeRunStatus, formatTimeAgo } from "../humanize";
 
 const STATUS_COLORS: Record<string, string> = {
   running: "bg-blue-500",
@@ -14,6 +16,8 @@ export function RunsList() {
   const [runs, setRuns] = useState<RunLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mode] = useUiMode();
+  const isOp = mode === "operator";
 
   useEffect(() => {
     apiFetch("/api/runs")
@@ -30,7 +34,7 @@ export function RunsList() {
   }, []);
 
   if (loading) {
-    return <div className="p-8 text-gray-400">Cargando runs...</div>;
+    return <div className="p-8 text-gray-400">Cargando ejecuciones...</div>;
   }
 
   if (error) {
@@ -67,17 +71,19 @@ export function RunsList() {
             <div className="flex-1 min-w-0">
               <div className="font-medium truncate">{run.task_id}</div>
               <div className="text-sm text-gray-400">
-                {run.branch && <span className="mr-3">{run.branch}</span>}
-                {new Date(run.started_at).toLocaleString("es-AR")}
+                {run.branch && !isOp && <span className="mr-3">{run.branch}</span>}
+                {isOp
+                  ? formatTimeAgo(run.started_at)
+                  : new Date(run.started_at).toLocaleString("es-AR")}
               </div>
             </div>
             {run.artifact_path && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-purple-800 text-purple-200" title="Patch forense disponible">
-                PATCH
+              <span className="text-xs px-1.5 py-0.5 rounded bg-purple-800 text-purple-200" title={isOp ? "Tiene cambios registrados" : "Patch forense disponible"}>
+                {isOp ? "Cambios" : "PATCH"}
               </span>
             )}
             <span className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 uppercase">
-              {run.status}
+              {isOp ? humanizeRunStatus(run.status) : run.status}
             </span>
           </a>
         ))}

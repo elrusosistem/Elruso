@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
 import { apiFetch } from "../api";
+import { useUiMode } from "../uiMode";
+import { OPERATOR_STAT_LABELS, humanizeRunnerName, humanizeRunnerStatus } from "../humanize";
 
 interface Metrics {
   tasks: { ready: number; running: number; blocked: number; failed: number; done: number };
@@ -46,6 +48,8 @@ export function Dashboard() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [runners, setRunners] = useState<Runner[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mode] = useUiMode();
+  const isOp = mode === "operator";
 
   const fetchAll = () => {
     Promise.all([
@@ -71,6 +75,7 @@ export function Dashboard() {
 
   const onlineRunners = runners.filter((r) => r.status === "online");
   const failRate = metrics.runs.fail_rate_last_20;
+  const label = (key: string) => (isOp ? OPERATOR_STAT_LABELS[key] ?? key : key);
 
   return (
     <div className="p-8 max-w-5xl">
@@ -78,40 +83,40 @@ export function Dashboard() {
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard label="Tasks Ready" value={metrics.tasks.ready} color="text-blue-400" />
-        <StatCard label="Tasks Running" value={metrics.tasks.running} color="text-yellow-400" />
-        <StatCard label="Tasks Done" value={metrics.tasks.done} color="text-green-400" />
-        <StatCard label="Tasks Failed" value={metrics.tasks.failed} color={metrics.tasks.failed > 0 ? "text-red-400" : "text-gray-400"} />
+        <StatCard label={label("Tasks Ready")} value={metrics.tasks.ready} color="text-blue-400" />
+        <StatCard label={label("Tasks Running")} value={metrics.tasks.running} color="text-yellow-400" />
+        <StatCard label={label("Tasks Done")} value={metrics.tasks.done} color="text-green-400" />
+        <StatCard label={label("Tasks Failed")} value={metrics.tasks.failed} color={metrics.tasks.failed > 0 ? "text-red-400" : "text-gray-400"} />
         <StatCard
-          label="Runners"
+          label={label("Runners")}
           value={`${onlineRunners.length} / ${runners.length}`}
           color={onlineRunners.length > 0 ? "text-green-400" : "text-red-400"}
-          sub={onlineRunners.length > 0 ? "online" : "todos offline"}
+          sub={isOp ? (onlineRunners.length > 0 ? "activos" : "ninguno activo") : (onlineRunners.length > 0 ? "online" : "todos offline")}
         />
         <StatCard
-          label="Runs (24h)"
+          label={label("Runs (24h)")}
           value={metrics.runs.last_24h}
-          sub={metrics.runs.fails_last_24h > 0 ? `${metrics.runs.fails_last_24h} failed` : undefined}
+          sub={metrics.runs.fails_last_24h > 0 ? `${metrics.runs.fails_last_24h} ${isOp ? "con error" : "failed"}` : undefined}
         />
         <StatCard
-          label="Fail Rate"
+          label={label("Fail Rate")}
           value={failRate != null ? `${(failRate * 100).toFixed(0)}%` : "-"}
           color={failRate != null && failRate > 0.2 ? "text-red-400" : "text-green-400"}
-          sub="ultimos 20 runs"
+          sub={isOp ? "ultimas 20 ejecuciones" : "ultimos 20 runs"}
         />
         <StatCard
-          label="Avg Duration"
+          label={label("Avg Duration")}
           value={formatAge(metrics.runs.avg_ready_to_done_seconds_last_20)}
-          sub="ready → done"
+          sub={isOp ? "inicio a fin" : "ready → done"}
         />
         <StatCard
-          label="Backlog Age"
+          label={label("Backlog Age")}
           value={formatAge(metrics.backlog.oldest_ready_age_seconds)}
           color={metrics.backlog.oldest_ready_age_seconds && metrics.backlog.oldest_ready_age_seconds > 86400 ? "text-yellow-400" : "text-gray-300"}
-          sub="task mas vieja"
+          sub={isOp ? "tarea mas antigua" : "task mas vieja"}
         />
         <StatCard
-          label="Deduped"
+          label={label("Deduped")}
           value={metrics.runs.deduped_total}
           sub={metrics.runs.deduped_last_24h > 0 ? `${metrics.runs.deduped_last_24h} hoy` : undefined}
           color="text-gray-400"
@@ -120,10 +125,32 @@ export function Dashboard() {
 
       {/* Runners detail */}
       <div className="mb-8">
-        <h3 className="text-lg font-semibold mb-3">Runners</h3>
+        <h3 className="text-lg font-semibold mb-3">{isOp ? "Agentes" : "Runners"}</h3>
         {runners.length === 0 ? (
-          <p className="text-gray-500 text-sm">Sin runners registrados.</p>
+          <p className="text-gray-500 text-sm">{isOp ? "Sin agentes registrados." : "Sin runners registrados."}</p>
+        ) : isOp ? (
+          /* Operator: show last 3, friendly names */
+          <div className="space-y-2">
+            {[...runners]
+              .sort((a, b) => new Date(b.last_seen_at).getTime() - new Date(a.last_seen_at).getTime())
+              .slice(0, 3)
+              .map((r) => (
+                <div key={r.runner_id} className="flex items-center gap-3 bg-gray-800 rounded-lg px-4 py-2 text-sm">
+                  <span className={`w-2.5 h-2.5 rounded-full ${r.status === "online" ? "bg-green-500" : "bg-gray-600"}`} />
+                  <span className="flex-1 text-gray-200">{humanizeRunnerName(r.runner_id, r.meta?.hostname)}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded ${r.status === "online" ? "bg-green-900 text-green-400" : "bg-gray-700 text-gray-500"}`}>
+                    {humanizeRunnerStatus(r.status, r.last_seen_at)}
+                  </span>
+                </div>
+              ))}
+            {runners.length > 3 && (
+              <a href="#/runners" className="text-xs text-blue-400 hover:underline ml-1">
+                Ver todos ({runners.length})
+              </a>
+            )}
+          </div>
         ) : (
+          /* Technical: full list as before */
           <div className="space-y-2">
             {runners.map((r) => (
               <div key={r.runner_id} className="flex items-center gap-3 bg-gray-800 rounded-lg px-4 py-2 text-sm">
@@ -145,7 +172,7 @@ export function Dashboard() {
       {/* Last run */}
       {metrics.runs.last_run_at && (
         <div className="text-xs text-gray-600">
-          Ultimo run: {new Date(metrics.runs.last_run_at).toLocaleString("es-AR")}
+          {isOp ? "Ultima ejecucion" : "Ultimo run"}: {new Date(metrics.runs.last_run_at).toLocaleString("es-AR")}
         </div>
       )}
     </div>

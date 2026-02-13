@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
 import { apiFetch } from "./api";
+import { useUiMode } from "./uiMode";
 import { RunsList } from "./pages/RunsList";
 import { RunDetail } from "./pages/RunDetail";
 import { RequestsList } from "./pages/RequestsList";
@@ -129,6 +130,30 @@ const NAV_ITEMS = [
   { path: "#/setup", label: "Setup", match: "#/setup" },
 ];
 
+function ModeToggle() {
+  const [mode, setMode] = useUiMode();
+  return (
+    <div className="inline-flex items-center rounded-full bg-gray-800 text-xs overflow-hidden">
+      <button
+        onClick={() => setMode("operator")}
+        className={`px-3 py-1 transition-colors ${
+          mode === "operator" ? "bg-blue-600 text-white" : "text-gray-400 hover:text-gray-200"
+        }`}
+      >
+        Operador
+      </button>
+      <button
+        onClick={() => setMode("technical")}
+        className={`px-3 py-1 transition-colors ${
+          mode === "technical" ? "bg-blue-600 text-white" : "text-gray-400 hover:text-gray-200"
+        }`}
+      >
+        Tecnico
+      </button>
+    </div>
+  );
+}
+
 export function App() {
   const hash = useHash();
 
@@ -179,6 +204,7 @@ export function App() {
           ))}
         </div>
         <div className="flex items-center gap-3">
+          <ModeToggle />
           <RunnerBadge />
           <PauseControl />
           <StatusBadge />

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
 import { DecisionsList } from "./DecisionsList";
 import { apiFetch } from "../api";
+import { useUiMode } from "../uiMode";
+import { humanizeDirectiveStatus } from "../humanize";
 
 interface Risk {
   id: string;
@@ -78,6 +80,12 @@ const SEVERITY_COLORS: Record<string, string> = {
   high: "text-red-400",
 };
 
+const SEVERITY_LABELS: Record<string, string> = {
+  low: "Bajo",
+  med: "Medio",
+  high: "Alto",
+};
+
 export function DirectivesList() {
   const [directives, setDirectives] = useState<Directive[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -85,6 +93,8 @@ export function DirectivesList() {
   const [error, setError] = useState<string | null>(null);
   const [gptRunning, setGptRunning] = useState(false);
   const [gptMessage, setGptMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  const [mode] = useUiMode();
+  const isOp = mode === "operator";
 
   const fetchDirectives = () => {
     apiFetch("/api/ops/directives")
@@ -100,7 +110,6 @@ export function DirectivesList() {
   useEffect(() => { fetchDirectives(); }, []);
 
   const runGpt = async () => {
-    // Check if system is paused
     try {
       const sysRes = await apiFetch("/api/ops/system/status");
       const sysData: ApiResponse<{ paused: boolean }> = await sysRes.json();
@@ -127,7 +136,7 @@ export function DirectivesList() {
         parts.push(`${d.directives_created} creada(s)`);
         if (d.directives_skipped > 0) parts.push(`${d.directives_skipped} duplicada(s)`);
         if (d.validation_errors?.length > 0) parts.push(`${d.validation_errors.length} error(es) validacion`);
-        setGptMessage({ type: "ok", text: `GPT completo — ${parts.join(", ")}` });
+        setGptMessage({ type: "ok", text: isOp ? `Plan generado — ${parts.join(", ")}` : `GPT completo — ${parts.join(", ")}` });
         fetchDirectives();
       } else {
         const msg = res.status === 404
@@ -158,13 +167,15 @@ export function DirectivesList() {
     if (data.ok && data.data) {
       const r = data.data;
       if (r.idempotent) {
-        alert("Directiva ya estaba aplicada (no-op)");
+        alert(isOp ? "Este plan ya fue aplicado anteriormente." : "Directiva ya estaba aplicada (no-op)");
       } else if (r.blocked_by_requests) {
-        alert(`Directiva bloqueada: faltan requests ${r.missing_requests.join(", ")}`);
+        alert(isOp
+          ? `No se puede aplicar: faltan datos por configurar (${r.missing_requests.join(", ")})`
+          : `Directiva bloqueada: faltan requests ${r.missing_requests.join(", ")}`);
       } else {
-        const parts: string[] = [`${r.tasks_created} task(s) creada(s)`];
+        const parts: string[] = [`${r.tasks_created} tarea(s) creada(s)`];
         if (r.tasks_skipped > 0) parts.push(`${r.tasks_skipped} duplicada(s)`);
-        alert(`Directiva aplicada: ${parts.join(", ")}`);
+        alert(isOp ? `Plan aplicado: ${parts.join(", ")}` : `Directiva aplicada: ${parts.join(", ")}`);
       }
       fetchDirectives();
     } else {
@@ -172,7 +183,7 @@ export function DirectivesList() {
     }
   };
 
-  if (loading) return <div className="p-8 text-gray-400">Cargando directivas...</div>;
+  if (loading) return <div className="p-8 text-gray-400">{isOp ? "Cargando planes..." : "Cargando directivas..."}</div>;
   if (error) return <div className="p-8 text-red-400">{error}</div>;
 
   const gptButton = (
@@ -187,7 +198,7 @@ export function DirectivesList() {
               : "bg-indigo-600 hover:bg-indigo-500 text-white"
           }`}
         >
-          {gptRunning ? "Generando..." : "Run GPT"}
+          {gptRunning ? "Generando..." : isOp ? "Generar nuevo plan (IA)" : "Run GPT"}
         </button>
         {gptMessage && (
           <span
@@ -197,26 +208,28 @@ export function DirectivesList() {
           </span>
         )}
       </div>
+      {isOp && !gptRunning && (
+        <p className="text-xs text-gray-500 mt-1">Esto crea un plan que requiere tu aprobacion.</p>
+      )}
     </div>
   );
 
   if (directives.length === 0) {
     return (
       <div className="p-8 text-gray-500">
-        <h2 className="text-2xl font-bold mb-4 text-white">Directivas</h2>
+        <h2 className="text-2xl font-bold mb-4 text-white">{isOp ? "Planes" : "Directivas"}</h2>
         {gptButton}
-        <p>Sin directivas. Usa el boton "Run GPT" para generar.</p>
+        <p>{isOp ? "Sin planes pendientes." : "Sin directivas. Usa el boton \"Run GPT\" para generar."}</p>
       </div>
     );
   }
 
   const selectedDir = selected ? directives.find((d) => d.id === selected) : null;
-  // Usar payload_json si existe (directive_v1), sino campos legacy
   const payload = selectedDir?.payload_json;
 
   return (
     <div className="p-8">
-      <h2 className="text-2xl font-bold mb-4">Directivas</h2>
+      <h2 className="text-2xl font-bold mb-4">{isOp ? "Planes" : "Directivas"}</h2>
       {gptButton}
       <div className="flex gap-6">
         {/* Lista */}
@@ -231,15 +244,25 @@ export function DirectivesList() {
             >
               <div className="flex items-center gap-2 mb-1">
                 <span className={`w-2 h-2 rounded-full ${STATUS_COLORS[dir.status]}`} />
-                <span className="font-medium text-sm">{dir.id}</span>
-                <span className="text-xs text-gray-500">{dir.source}</span>
-                {dir.payload_json && (
-                  <span className="text-xs px-1 bg-gray-700 rounded text-gray-400">
-                    {dir.directive_schema_version || "v1"}
+                {isOp ? (
+                  <span className="text-xs text-gray-400">
+                    {humanizeDirectiveStatus(dir.status)}
                   </span>
+                ) : (
+                  <>
+                    <span className="font-medium text-sm">{dir.id}</span>
+                    <span className="text-xs text-gray-500">{dir.source}</span>
+                    {dir.payload_json && (
+                      <span className="text-xs px-1 bg-gray-700 rounded text-gray-400">
+                        {dir.directive_schema_version || "v1"}
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
-              <div className="text-sm truncate">{dir.title}</div>
+              <div className="text-sm truncate">
+                {dir.payload_json?.objective ?? dir.title}
+              </div>
             </button>
           ))}
         </div>
@@ -255,7 +278,7 @@ export function DirectivesList() {
                   {payload ? payload.objective : selectedDir.title}
                 </h3>
                 <span className="text-xs px-2 py-0.5 bg-gray-700 rounded uppercase">
-                  {selectedDir.status}
+                  {isOp ? humanizeDirectiveStatus(selectedDir.status) : selectedDir.status}
                 </span>
               </div>
 
@@ -269,7 +292,7 @@ export function DirectivesList() {
               {/* Estimated Impact */}
               {payload?.estimated_impact && (
                 <div className="text-sm bg-gray-900 rounded p-3">
-                  <span className="text-gray-400 font-semibold">Impacto estimado: </span>
+                  <span className="text-gray-400 font-semibold">{isOp ? "Impacto esperado: " : "Impacto estimado: "}</span>
                   <span className="text-gray-200">{payload.estimated_impact}</span>
                 </div>
               )}
@@ -277,7 +300,9 @@ export function DirectivesList() {
               {/* Success Criteria */}
               {payload?.success_criteria && payload.success_criteria.length > 0 && (
                 <div>
-                  <h4 className="text-sm font-semibold mb-2 text-gray-400">Criterios de exito</h4>
+                  <h4 className="text-sm font-semibold mb-2 text-gray-400">
+                    {isOp ? "Criterios de exito" : "Criterios de exito"}
+                  </h4>
                   <ul className="text-sm space-y-1">
                     {payload.success_criteria.map((c, i) => (
                       <li key={i} className="flex items-start gap-2">
@@ -297,7 +322,7 @@ export function DirectivesList() {
                     {payload.risks.map((r) => (
                       <div key={r.id} className="flex items-start gap-2 text-sm">
                         <span className={`font-mono text-xs mt-0.5 ${SEVERITY_COLORS[r.severity]}`}>
-                          [{r.severity.toUpperCase()}]
+                          [{isOp ? SEVERITY_LABELS[r.severity] ?? r.severity.toUpperCase() : r.severity.toUpperCase()}]
                         </span>
                         <span>{r.text}</span>
                       </div>
@@ -310,43 +335,56 @@ export function DirectivesList() {
               {selectedDir.tasks_to_create.length > 0 && (
                 <div>
                   <h4 className="text-sm font-semibold mb-2 text-gray-400">
-                    Tasks a crear ({selectedDir.tasks_to_create.length})
+                    {isOp ? `Tareas a crear (${selectedDir.tasks_to_create.length})` : `Tasks a crear (${selectedDir.tasks_to_create.length})`}
                   </h4>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-gray-500 text-xs text-left">
-                        <th className="pb-1">ID</th>
-                        <th className="pb-1">Tipo</th>
-                        <th className="pb-1">Titulo</th>
-                        <th className="pb-1">Pri</th>
-                        <th className="pb-1">Deps</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  {isOp ? (
+                    <ul className="text-sm space-y-1">
                       {selectedDir.tasks_to_create.map((t, i) => (
-                        <tr key={i} className="border-t border-gray-700">
-                          <td className="py-1 font-mono text-xs text-gray-400">
-                            {t.task_id || `auto-${i + 1}`}
-                          </td>
-                          <td className="py-1 text-xs text-gray-500">
-                            {t.task_type || "-"}
-                          </td>
-                          <td className="py-1">{t.title}</td>
-                          <td className="py-1 text-center">{t.priority ?? "-"}</td>
-                          <td className="py-1 text-xs text-gray-500">
-                            {t.depends_on?.join(", ") || "-"}
-                          </td>
-                        </tr>
+                        <li key={i} className="flex items-start gap-2">
+                          <span className="text-gray-600 mt-0.5">-</span>
+                          <span>{t.title}</span>
+                        </li>
                       ))}
-                    </tbody>
-                  </table>
+                    </ul>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-gray-500 text-xs text-left">
+                          <th className="pb-1">ID</th>
+                          <th className="pb-1">Tipo</th>
+                          <th className="pb-1">Titulo</th>
+                          <th className="pb-1">Pri</th>
+                          <th className="pb-1">Deps</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedDir.tasks_to_create.map((t, i) => (
+                          <tr key={i} className="border-t border-gray-700">
+                            <td className="py-1 font-mono text-xs text-gray-400">
+                              {t.task_id || `auto-${i + 1}`}
+                            </td>
+                            <td className="py-1 text-xs text-gray-500">
+                              {t.task_type || "-"}
+                            </td>
+                            <td className="py-1">{t.title}</td>
+                            <td className="py-1 text-center">{t.priority ?? "-"}</td>
+                            <td className="py-1 text-xs text-gray-500">
+                              {t.depends_on?.join(", ") || "-"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               )}
 
-              {/* Required requests */}
+              {/* Required requests - operator: prominent warning */}
               {payload?.required_requests && payload.required_requests.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-semibold mb-2 text-gray-400">Requests requeridas</h4>
+                <div className={isOp ? "bg-yellow-900/30 border border-yellow-700 rounded p-3" : ""}>
+                  <h4 className={`text-sm font-semibold mb-2 ${isOp ? "text-yellow-300" : "text-gray-400"}`}>
+                    {isOp ? "Faltan datos para ejecutar" : "Requests requeridas"}
+                  </h4>
                   <ul className="text-sm space-y-1">
                     {payload.required_requests.map((r) => (
                       <li key={r.request_id} className="flex items-start gap-2">
@@ -355,6 +393,11 @@ export function DirectivesList() {
                       </li>
                     ))}
                   </ul>
+                  {isOp && (
+                    <a href="#/requests" className="text-xs text-blue-400 hover:underline mt-2 inline-block">
+                      Ir a Configuracion →
+                    </a>
+                  )}
                 </div>
               )}
 
@@ -387,7 +430,7 @@ export function DirectivesList() {
                     onClick={() => updateStatus(selectedDir.id, "APPROVED")}
                     className="px-4 py-2 bg-blue-700 hover:bg-blue-600 rounded text-sm transition-colors"
                   >
-                    Aprobar
+                    {isOp ? "Aprobar plan" : "Aprobar"}
                   </button>
                   <button
                     onClick={() => {
@@ -405,45 +448,65 @@ export function DirectivesList() {
               {selectedDir.status === "APPROVED" && (
                 <div className="pt-4 border-t border-gray-700">
                   <div className="mb-3 text-sm text-yellow-400">
-                    Aplicar creara {selectedDir.tasks_to_create.length} task(s) ejecutables.
+                    {isOp
+                      ? `Aplicar creara ${selectedDir.tasks_to_create.length} tarea(s).`
+                      : `Aplicar creara ${selectedDir.tasks_to_create.length} task(s) ejecutables.`}
                     {payload?.required_requests && payload.required_requests.length > 0 && (
-                      <> Requiere: {payload.required_requests.map((r) => r.request_id).join(", ")}.</>
+                      <> {isOp ? "Requiere datos:" : "Requiere:"} {payload.required_requests.map((r) => r.request_id).join(", ")}.</>
                     )}
                   </div>
                   <button
                     onClick={() => applyDirective(selectedDir.id)}
                     className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded text-sm transition-colors"
                   >
-                    Aplicar y Crear Tasks
+                    {isOp ? "Aplicar plan" : "Aplicar y Crear Tasks"}
                   </button>
                 </div>
               )}
 
               {/* Decisions asociadas */}
-              <div className="pt-4 border-t border-gray-700">
-                <h4 className="text-sm font-semibold mb-2 text-gray-400">Decisions</h4>
-                <DecisionsList filterDirectiveId={selectedDir.id} />
-              </div>
+              {!isOp && (
+                <div className="pt-4 border-t border-gray-700">
+                  <h4 className="text-sm font-semibold mb-2 text-gray-400">Decisions</h4>
+                  <DecisionsList filterDirectiveId={selectedDir.id} />
+                </div>
+              )}
 
               {/* Meta */}
               <div className="text-xs text-gray-600 pt-2">
-                Creada: {new Date(selectedDir.created_at).toLocaleString("es-AR")}
-                {selectedDir.applied_at && (
-                  <> | Aplicada: {new Date(selectedDir.applied_at).toLocaleString("es-AR")}</>
-                )}
-                {selectedDir.rejection_reason && (
-                  <> | Razon: {selectedDir.rejection_reason}</>
-                )}
-                {selectedDir.payload_hash && (
-                  <> | Hash: {selectedDir.payload_hash.substring(0, 12)}...</>
-                )}
-                {selectedDir.directive_schema_version && (
-                  <> | Schema: {selectedDir.directive_schema_version}</>
+                {isOp ? (
+                  <>
+                    Creado: {new Date(selectedDir.created_at).toLocaleString("es-AR")}
+                    {selectedDir.applied_at && (
+                      <> | Aplicado: {new Date(selectedDir.applied_at).toLocaleString("es-AR")}</>
+                    )}
+                    {selectedDir.rejection_reason && (
+                      <> | Motivo: {selectedDir.rejection_reason}</>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    Creada: {new Date(selectedDir.created_at).toLocaleString("es-AR")}
+                    {selectedDir.applied_at && (
+                      <> | Aplicada: {new Date(selectedDir.applied_at).toLocaleString("es-AR")}</>
+                    )}
+                    {selectedDir.rejection_reason && (
+                      <> | Razon: {selectedDir.rejection_reason}</>
+                    )}
+                    {selectedDir.payload_hash && (
+                      <> | Hash: {selectedDir.payload_hash.substring(0, 12)}...</>
+                    )}
+                    {selectedDir.directive_schema_version && (
+                      <> | Schema: {selectedDir.directive_schema_version}</>
+                    )}
+                  </>
                 )}
               </div>
             </div>
           ) : (
-            <div className="text-gray-500 text-sm">Seleccionar una directiva para ver detalle.</div>
+            <div className="text-gray-500 text-sm">
+              {isOp ? "Selecciona un plan para ver los detalles." : "Seleccionar una directiva para ver detalle."}
+            </div>
           )}
         </div>
       </div>
