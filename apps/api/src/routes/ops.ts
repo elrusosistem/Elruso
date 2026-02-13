@@ -745,17 +745,17 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true, data: { paused: false } };
   });
 
-  // ─── DIRECTIVE APPLICATION ───────────────────────────────────────────
+  // ─── DIRECTIVE APPLICATION (idempotente) ───────────────────────────
 
-  // POST /ops/directives/:id/apply — Aplicar directiva aprobada (requiere X-ADMIN-TOKEN)
+  // POST /ops/directives/:id/apply — Aplicar directiva aprobada
+  // Idempotente: si ya está APPLIED devuelve OK sin duplicar tasks.
+  // Si payload_hash ya fue aplicado por otra directiva, retorna no-op.
   app.post<{ Params: { id: string } }>(
     "/ops/directives/:id/apply",
-    async (request, reply): Promise<ApiResponse<{ directive_id: string; tasks_created: number }>> => {
+    async (request, reply): Promise<ApiResponse<{ directive_id: string; tasks_created: number; idempotent: boolean }>> => {
       const { id } = request.params;
-
-      // TODO: verificar X-ADMIN-TOKEN en Fase 6
-
       const db = getDb();
+      const now = new Date().toISOString();
 
       // 1. Obtener directiva
       const { data: directive, error: fetchError } = await db
@@ -769,52 +769,88 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         return { ok: false, error: "directive_not_found" };
       }
 
-      // 2. Verificar que esté aprobada
+      // 2. Idempotente: ya aplicada → no-op
+      if (directive.status === "APPLIED" && directive.applied_at) {
+        return { ok: true, data: { directive_id: id, tasks_created: 0, idempotent: true } };
+      }
+
+      // 3. Verificar que esté aprobada
       if (directive.status !== "APPROVED") {
-        reply.code(400);
+        reply.code(409);
         return { ok: false, error: `directive_not_approved (status: ${directive.status})` };
       }
 
-      // 3. Crear tasks desde tasks_to_create
+      // 4. Idempotente por hash: si otro directive con mismo hash ya fue APPLIED → no-op
+      if (directive.payload_hash) {
+        const { data: existing } = await db
+          .from("ops_directives")
+          .select("id")
+          .eq("payload_hash", directive.payload_hash)
+          .eq("status", "APPLIED")
+          .neq("id", id)
+          .limit(1);
+
+        if (existing && existing.length > 0) {
+          // Marcar esta como APPLIED también (misma payload ya ejecutada)
+          await db.from("ops_directives").update({
+            status: "APPLIED",
+            applied_at: now,
+            applied_by: "system (hash_match)",
+            updated_at: now,
+          }).eq("id", id);
+
+          return { ok: true, data: { directive_id: id, tasks_created: 0, idempotent: true } };
+        }
+      }
+
+      // 5. Crear tasks (upsert por task_id para no duplicar)
       const tasksToCreate = (directive.tasks_to_create as unknown[]) || [];
       const created: string[] = [];
 
       for (const task of tasksToCreate) {
-        const taskEntry = task as TaskEntry;
+        const t = task as Record<string, unknown>;
+        const taskId = (t.task_id || t.id || `T-GPT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`) as string;
+
         const { error: insertError } = await db
           .from("ops_tasks")
           .upsert(
             {
-              id: taskEntry.id,
-              phase: taskEntry.phase || 0,
-              title: taskEntry.title,
-              status: taskEntry.status || "ready",
-              branch: taskEntry.branch || "main",
-              depends_on: taskEntry.depends_on || [],
-              blocked_by: taskEntry.blocked_by || [],
+              id: taskId,
+              phase: (t.phase as number) || 0,
+              title: (t.title as string) || "Sin titulo",
+              status: "ready",
+              branch: "main",
+              depends_on: (t.depends_on as string[]) || [],
+              blocked_by: [],
               directive_id: id,
-              max_attempts: taskEntry.max_attempts || 3,
+              max_attempts: 3,
             },
             { onConflict: "id" }
           );
 
         if (!insertError) {
-          created.push(taskEntry.id);
+          created.push(taskId);
         }
       }
 
-      // 4. Marcar directiva como APPLIED
-      await db
-        .from("ops_directives")
-        .update({
-          status: "APPLIED",
-          applied_at: new Date().toISOString(),
-          applied_by: "human",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", id);
+      // 6. Marcar directiva como APPLIED
+      await db.from("ops_directives").update({
+        status: "APPLIED",
+        applied_at: now,
+        applied_by: "human",
+        updated_at: now,
+      }).eq("id", id);
 
-      return { ok: true, data: { directive_id: id, tasks_created: created.length } };
+      // 7. Registrar en decisions_log
+      await db.from("decisions_log").insert({
+        source: "system",
+        decision_key: "directive_apply",
+        decision_value: { directive_id: id, tasks_created: created },
+        context: { payload_hash: directive.payload_hash || null },
+        created_at: now,
+      });
+
+      return { ok: true, data: { directive_id: id, tasks_created: created.length, idempotent: false } };
     }
   );
 }

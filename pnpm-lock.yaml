@@ -34,7 +34,10 @@ importers:
         version: 5.7.4
       openai:
         specifier: ^6.18.0
-        version: 6.18.0(ws@8.19.0)
+        version: 6.18.0(ws@8.19.0)(zod@4.3.6)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1542,6 +1545,9 @@ packages:
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
 
+  zod@4.3.6:
+    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+
 snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
@@ -2458,9 +2464,10 @@ snapshots:
 
   on-exit-leak-free@2.1.2: {}
 
-  openai@6.18.0(ws@8.19.0):
+  openai@6.18.0(ws@8.19.0)(zod@4.3.6):
     optionalDependencies:
       ws: 8.19.0
+      zod: 4.3.6
 
   path-parse@1.0.7: {}
 
@@ -2828,3 +2835,5 @@ snapshots:
   ws@8.19.0: {}
 
   yallist@3.1.1: {}
+
+  zod@4.3.6: {}

@@ -1,6 +1,38 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
 
+interface Risk {
+  id: string;
+  text: string;
+  severity: "low" | "med" | "high";
+}
+
+interface TaskToCreate {
+  task_id?: string;
+  title: string;
+  priority?: number;
+  depends_on?: string[];
+  acceptance_criteria?: string[];
+  description?: string;
+  // Legacy fields
+  phase?: number;
+}
+
+interface RequiredRequest {
+  request_id: string;
+  reason: string;
+}
+
+interface PayloadV1 {
+  version: "directive_v1";
+  objective: string;
+  context_summary?: string;
+  risks?: Risk[];
+  tasks_to_create: TaskToCreate[];
+  required_requests?: RequiredRequest[];
+  apply_notes?: string;
+}
+
 interface Directive {
   id: string;
   created_at: string;
@@ -9,7 +41,9 @@ interface Directive {
   title: string;
   body: string;
   acceptance_criteria: string[];
-  tasks_to_create: { title: string; phase: number }[];
+  tasks_to_create: TaskToCreate[];
+  payload_json: PayloadV1 | null;
+  payload_hash: string | null;
   applied_at: string | null;
   rejection_reason: string | null;
 }
@@ -19,6 +53,12 @@ const STATUS_COLORS: Record<string, string> = {
   APPROVED: "bg-blue-500",
   APPLIED: "bg-green-500",
   REJECTED: "bg-red-500",
+};
+
+const SEVERITY_COLORS: Record<string, string> = {
+  low: "text-green-400",
+  med: "text-yellow-400",
+  high: "text-red-400",
 };
 
 export function DirectivesList() {
@@ -50,12 +90,13 @@ export function DirectivesList() {
   };
 
   const applyDirective = async (id: string) => {
-    const response = await fetch(`/api/ops/directives/${id}/apply`, {
-      method: "POST",
-    });
+    const response = await fetch(`/api/ops/directives/${id}/apply`, { method: "POST" });
     const data = await response.json();
     if (data.ok) {
-      alert(`Directiva aplicada: ${data.data.tasks_created} tasks creadas`);
+      const msg = data.data.idempotent
+        ? "Directiva ya estaba aplicada (no-op)"
+        : `Directiva aplicada: ${data.data.tasks_created} tasks creadas`;
+      alert(msg);
       fetchDirectives();
     } else {
       alert(`Error: ${data.error}`);
@@ -69,17 +110,14 @@ export function DirectivesList() {
     return (
       <div className="p-8 text-gray-500">
         <h2 className="text-2xl font-bold mb-4 text-white">Directivas</h2>
-        <p>Sin directivas en el inbox.</p>
-        <p className="text-sm mt-2">
-          Generar con: <code className="bg-gray-800 px-1 rounded">./scripts/compose_gpt_prompt.sh</code>
-          {" "}&rarr; GPT &rarr;{" "}
-          <code className="bg-gray-800 px-1 rounded">./scripts/apply_gpt_directives.sh</code>
-        </p>
+        <p>Sin directivas. Ejecutar <code className="bg-gray-800 px-1 rounded">POST /ops/gpt/run</code> para generar.</p>
       </div>
     );
   }
 
   const selectedDir = selected ? directives.find((d) => d.id === selected) : null;
+  // Usar payload_json si existe (directive_v1), sino campos legacy
+  const payload = selectedDir?.payload_json;
 
   return (
     <div className="p-8">
@@ -99,6 +137,9 @@ export function DirectivesList() {
                 <span className={`w-2 h-2 rounded-full ${STATUS_COLORS[dir.status]}`} />
                 <span className="font-medium text-sm">{dir.id}</span>
                 <span className="text-xs text-gray-500">{dir.source}</span>
+                {dir.payload_json && (
+                  <span className="text-xs px-1 bg-gray-700 rounded text-gray-400">v1</span>
+                )}
               </div>
               <div className="text-sm truncate">{dir.title}</div>
             </button>
@@ -108,21 +149,100 @@ export function DirectivesList() {
         {/* Detalle */}
         <div className="flex-1">
           {selectedDir ? (
-            <div className="bg-gray-800 rounded-lg p-6">
-              <div className="flex items-center gap-3 mb-4">
+            <div className="bg-gray-800 rounded-lg p-6 space-y-4">
+              {/* Header */}
+              <div className="flex items-center gap-3">
                 <span className={`w-3 h-3 rounded-full ${STATUS_COLORS[selectedDir.status]}`} />
-                <h3 className="text-lg font-semibold">{selectedDir.title}</h3>
+                <h3 className="text-lg font-semibold flex-1">
+                  {payload ? payload.objective : selectedDir.title}
+                </h3>
                 <span className="text-xs px-2 py-0.5 bg-gray-700 rounded uppercase">
                   {selectedDir.status}
                 </span>
               </div>
 
-              <div className="text-sm text-gray-300 mb-4 whitespace-pre-wrap">
-                {selectedDir.body}
-              </div>
+              {/* Context / Body */}
+              {(payload?.context_summary || selectedDir.body) && (
+                <div className="text-sm text-gray-300 whitespace-pre-wrap">
+                  {payload?.context_summary || selectedDir.body}
+                </div>
+              )}
 
-              {selectedDir.acceptance_criteria.length > 0 && (
-                <div className="mb-4">
+              {/* Risks */}
+              {payload?.risks && payload.risks.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2 text-gray-400">Riesgos</h4>
+                  <div className="space-y-1">
+                    {payload.risks.map((r) => (
+                      <div key={r.id} className="flex items-start gap-2 text-sm">
+                        <span className={`font-mono text-xs mt-0.5 ${SEVERITY_COLORS[r.severity]}`}>
+                          [{r.severity.toUpperCase()}]
+                        </span>
+                        <span>{r.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Tasks to create */}
+              {selectedDir.tasks_to_create.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2 text-gray-400">
+                    Tasks a crear ({selectedDir.tasks_to_create.length})
+                  </h4>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-gray-500 text-xs text-left">
+                        <th className="pb-1">ID</th>
+                        <th className="pb-1">Titulo</th>
+                        <th className="pb-1">Prioridad</th>
+                        <th className="pb-1">Deps</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedDir.tasks_to_create.map((t, i) => (
+                        <tr key={i} className="border-t border-gray-700">
+                          <td className="py-1 font-mono text-xs text-gray-400">
+                            {t.task_id || `auto-${i + 1}`}
+                          </td>
+                          <td className="py-1">{t.title}</td>
+                          <td className="py-1 text-center">{t.priority ?? t.phase ?? "-"}</td>
+                          <td className="py-1 text-xs text-gray-500">
+                            {t.depends_on?.join(", ") || "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Required requests */}
+              {payload?.required_requests && payload.required_requests.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2 text-gray-400">Requests requeridas</h4>
+                  <ul className="text-sm space-y-1">
+                    {payload.required_requests.map((r) => (
+                      <li key={r.request_id} className="flex items-start gap-2">
+                        <span className="font-mono text-xs text-yellow-400">{r.request_id}</span>
+                        <span className="text-gray-300">{r.reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Apply notes */}
+              {payload?.apply_notes && (
+                <div className="text-sm text-gray-400 italic border-l-2 border-gray-600 pl-3">
+                  {payload.apply_notes}
+                </div>
+              )}
+
+              {/* Acceptance criteria (legacy) */}
+              {!payload && selectedDir.acceptance_criteria.length > 0 && (
+                <div>
                   <h4 className="text-sm font-semibold mb-2 text-gray-400">Criterios de aceptacion</h4>
                   <ul className="text-sm space-y-1">
                     {selectedDir.acceptance_criteria.map((c, i) => (
@@ -135,27 +255,14 @@ export function DirectivesList() {
                 </div>
               )}
 
-              {selectedDir.tasks_to_create.length > 0 && (
-                <div className="mb-4">
-                  <h4 className="text-sm font-semibold mb-2 text-gray-400">Tasks a crear</h4>
-                  <ul className="text-sm space-y-1">
-                    {selectedDir.tasks_to_create.map((t, i) => (
-                      <li key={i} className="text-gray-300">
-                        Fase {t.phase}: {t.title}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Botones de aprobación para PENDING_REVIEW */}
+              {/* Botones PENDING_REVIEW */}
               {selectedDir.status === "PENDING_REVIEW" && (
-                <div className="flex gap-2 mt-4 pt-4 border-t border-gray-700">
+                <div className="flex gap-2 pt-4 border-t border-gray-700">
                   <button
                     onClick={() => updateStatus(selectedDir.id, "APPROVED")}
                     className="px-4 py-2 bg-blue-700 hover:bg-blue-600 rounded text-sm transition-colors"
                   >
-                    ✓ Aprobar
+                    Aprobar
                   </button>
                   <button
                     onClick={() => {
@@ -164,33 +271,37 @@ export function DirectivesList() {
                     }}
                     className="px-4 py-2 bg-red-700 hover:bg-red-600 rounded text-sm transition-colors"
                   >
-                    ✗ Rechazar
+                    Rechazar
                   </button>
                 </div>
               )}
 
-              {/* Botón de aplicación para APPROVED */}
+              {/* Botón APPROVED → Apply */}
               {selectedDir.status === "APPROVED" && (
-                <div className="mt-4 pt-4 border-t border-gray-700">
+                <div className="pt-4 border-t border-gray-700">
                   <div className="mb-3 text-sm text-yellow-400">
-                    ⚠ Esta directiva creará {selectedDir.tasks_to_create.length} task(s) ejecutables.
+                    Aplicar creara {selectedDir.tasks_to_create.length} task(s) ejecutables.
                   </div>
                   <button
                     onClick={() => applyDirective(selectedDir.id)}
                     className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded text-sm transition-colors"
                   >
-                    🚀 Aplicar y Crear Tasks
+                    Aplicar y Crear Tasks
                   </button>
                 </div>
               )}
 
-              <div className="text-xs text-gray-600 mt-4">
+              {/* Meta */}
+              <div className="text-xs text-gray-600 pt-2">
                 Creada: {new Date(selectedDir.created_at).toLocaleString("es-AR")}
                 {selectedDir.applied_at && (
                   <> | Aplicada: {new Date(selectedDir.applied_at).toLocaleString("es-AR")}</>
                 )}
                 {selectedDir.rejection_reason && (
                   <> | Razon: {selectedDir.rejection_reason}</>
+                )}
+                {selectedDir.payload_hash && (
+                  <> | Hash: {selectedDir.payload_hash.substring(0, 12)}...</>
                 )}
               </div>
             </div>
