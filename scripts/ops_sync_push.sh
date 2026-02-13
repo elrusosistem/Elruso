@@ -114,21 +114,26 @@ show_diff() {
 }
 
 # ─── Columnas validas por tabla (evita schema mismatch) ──────────────
-declare -A TABLE_COLUMNS
-TABLE_COLUMNS[ops_tasks]="id phase title status branch depends_on blocked_by directive_id"
-TABLE_COLUMNS[ops_requests]="id service type scopes purpose where_to_set validation_cmd status provided_at"
-TABLE_COLUMNS[ops_directives]="id created_at source status title body acceptance_criteria tasks_to_create applied_at applied_by rejection_reason"
+get_table_columns() {
+  case "$1" in
+    ops_tasks)      echo "id phase title status branch depends_on blocked_by directive_id" ;;
+    ops_requests)   echo "id service type scopes purpose where_to_set validation_cmd status provided_at" ;;
+    ops_directives) echo "id created_at source status title body acceptance_criteria tasks_to_create applied_at applied_by rejection_reason" ;;
+    *)              echo "" ;;
+  esac
+}
 
 # ─── Helper: sanitizar row (solo columnas validas) ───────────────────
 sanitize_row() {
   local table="$1"
   local row="$2"
-  local cols="${TABLE_COLUMNS[$table]}"
+  local cols
+  cols=$(get_table_columns "$table")
   if [ -z "$cols" ]; then
     echo "$row"
     return
   fi
-  # Construir filtro jq: {col1, col2, ...} intersectado con keys del row
+  # Construir filtro jq: pick solo columnas validas
   local jq_filter
   jq_filter=$(echo "$cols" | tr ' ' '\n' | awk '{printf "  \"%s\": .[\"%s\"],\n", $1, $1}' | sed '$ s/,$//')
   echo "$row" | jq -c "{${jq_filter}} | with_entries(select(.value != null))"
