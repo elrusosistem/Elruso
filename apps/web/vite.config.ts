@@ -2,7 +2,12 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { execSync } from "node:child_process";
 
-const commitHash = execSync("git rev-parse --short HEAD").toString().trim();
+let commitHash = process.env.VERCEL_GIT_COMMIT_SHA?.substring(0, 7) || "dev";
+try {
+  commitHash = execSync("git rev-parse --short HEAD").toString().trim();
+} catch {
+  // Not a git repo (e.g. Vercel build environment)
+}
 const buildTime = new Date().toISOString();
 
 export default defineConfig({
