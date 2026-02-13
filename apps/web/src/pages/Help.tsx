@@ -2,6 +2,18 @@ import { OnboardingContent } from "../components/OperatorOnboardingModal";
 
 const FAQ: { q: string; a: string }[] = [
   {
+    q: "Que es el Wizard?",
+    a: "Es una guia inicial que te ayuda a configurar el sistema para tu negocio. Solo se completa una vez. Podes encontrarlo en Definir estrategia.",
+  },
+  {
+    q: "Que son los Objetivos?",
+    a: "Son las metas de tu negocio. El sistema genera planes alineados a estos objetivos. Podes activar, pausar o completar objetivos desde la seccion Objetivos.",
+  },
+  {
+    q: "Por que no puedo generar un plan?",
+    a: "Necesitas: (1) completar la configuracion inicial (wizard), (2) tener al menos un objetivo activo, y (3) configurar los datos requeridos en Configuracion.",
+  },
+  {
     q: "Que es un Plan?",
     a: "Es una propuesta automatica de mejoras o tareas. La IA analiza el estado del sistema y sugiere que hacer. Vos lo aprobas o rechazas.",
   },

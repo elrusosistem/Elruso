@@ -29,6 +29,8 @@ export interface OpsRequest {
   validation_cmd: string;
   status: RequestStatus;
   provided_at?: string;
+  required_for_planning?: boolean;
+  objective_id?: string | null;
 }
 
 // ─── Directives ─────────────────────────────────────────────────────
@@ -107,6 +109,39 @@ export interface DecisionLog {
   context: Record<string, unknown> | null;
   run_id: string | null;
   directive_id: string | null;
+}
+
+// ─── Objectives ─────────────────────────────────────────────────────
+export type ObjectiveStatus = "draft" | "active" | "paused" | "done";
+
+export interface Objective {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  title: string;
+  description: string;
+  profile: string;
+  status: ObjectiveStatus;
+  priority: number;
+  owner_label: string | null;
+  last_reviewed_at: string | null;
+}
+
+// ─── Wizard ─────────────────────────────────────────────────────────
+export interface WizardAnswers {
+  what_to_achieve?: string;
+  how_today?: string;
+  tech_level?: "none" | "basic" | "intermediate" | "technical";
+  current_stack?: string;
+  profile?: string;
+}
+
+export interface WizardState {
+  has_completed_wizard: boolean;
+  answers: WizardAnswers;
+  current_profile: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // ─── API responses ───────────────────────────────────────────────────

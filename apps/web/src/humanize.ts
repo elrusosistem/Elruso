@@ -78,6 +78,12 @@ const DECISION_KEY_MAP: Record<string, string> = {
   gpt_directive_created: "Plan generado",
   gpt_directive_validation_failed: "Plan invalido",
   gpt_run_failed: "Error al generar plan",
+  gpt_run_blocked: "Plan bloqueado por precondiciones",
+  objective_created: "Objetivo creado",
+  objective_activated: "Objetivo activado",
+  objective_paused: "Objetivo pausado",
+  wizard_completed: "Configuracion inicial completada",
+  auto_requests_created: "Configuracion requerida generada",
 };
 
 export function humanizeDecisionKey(key: string): string {
@@ -127,6 +133,7 @@ export const OPERATOR_NAV_LABELS: Record<string, string> = {
   Dashboard: "Inicio",
   Runs: "Ejecuciones",
   Tasks: "Tareas",
+  Objetivos: "Objetivos",
   Directivas: "Planes",
   Decisions: "Registro",
   Requests: "Configuracion",

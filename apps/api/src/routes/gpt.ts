@@ -72,6 +72,61 @@ async function buildStateSnapshot(): Promise<StateSnapshot> {
   };
 }
 
+// ─── Preconditions: verificar si se puede planificar ─────────────
+interface PreconditionResult {
+  canPlan: boolean;
+  reasons: string[];
+  activeObjectives: { id: string; title: string; description: string; priority: number; profile: string }[];
+  missingRequests: { id: string; purpose: string }[];
+}
+
+async function checkPlanningPreconditions(): Promise<PreconditionResult> {
+  const db = getDb();
+  const reasons: string[] = [];
+
+  // 1. Wizard completado?
+  const { data: wizardData } = await db
+    .from("wizard_state")
+    .select("has_completed_wizard")
+    .eq("id", 1)
+    .single();
+
+  if (!wizardData || !wizardData.has_completed_wizard) {
+    reasons.push("wizard_not_completed");
+  }
+
+  // 2. Objetivos activos?
+  const { data: objectives } = await db
+    .from("objectives")
+    .select("id, title, description, priority, profile")
+    .eq("status", "active");
+
+  if (!objectives || objectives.length === 0) {
+    reasons.push("no_active_objectives");
+  }
+
+  // 3. Requests obligatorias completas?
+  const { data: requiredReqs } = await db
+    .from("ops_requests")
+    .select("id, purpose, status")
+    .eq("required_for_planning", true);
+
+  const missing = (requiredReqs || []).filter(
+    (r) => r.status !== "PROVIDED",
+  );
+
+  if (missing.length > 0) {
+    reasons.push("missing_required_requests");
+  }
+
+  return {
+    canPlan: reasons.length === 0,
+    reasons,
+    activeObjectives: (objectives || []) as PreconditionResult["activeObjectives"],
+    missingRequests: missing.map((r) => ({ id: r.id, purpose: r.purpose })),
+  };
+}
+
 // ─── Compose: prompt estructurado con secciones fijas ─────────────
 async function composeContext(): Promise<{ prompt: string; state_snapshot: StateSnapshot }> {
   const db = getDb();
@@ -122,6 +177,13 @@ async function composeContext(): Promise<{ prompt: string; state_snapshot: State
     .order("created_at", { ascending: false })
     .limit(5);
 
+  // Active objectives
+  const { data: activeObjectives } = await db
+    .from("objectives")
+    .select("id, title, description, priority, profile")
+    .eq("status", "active")
+    .order("priority", { ascending: true });
+
   const readyTasksSection = (readyTasks || []).length > 0
     ? (readyTasks || []).map((t) =>
         `- ${t.id}: ${t.title}${(t.depends_on as string[])?.length ? ` [deps: ${(t.depends_on as string[]).join(",")}]` : ""}`
@@ -150,9 +212,18 @@ async function composeContext(): Promise<{ prompt: string; state_snapshot: State
     ? (pendingDirs || []).map((d) => `- ${d.id}: [${d.status}] ${d.title}`).join("\n")
     : "- (ninguna)";
 
+  const objectivesSection = (activeObjectives || []).length > 0
+    ? (activeObjectives || []).map((o) =>
+        `- [P${o.priority}] ${o.title}: ${o.description || "(sin descripcion)"} [perfil: ${o.profile}]`
+      ).join("\n")
+    : "- (sin objetivos activos)";
+
   const rawPrompt = `# CONTEXTO — El Ruso (Orquestador)
 
 Sos el orquestador estrategico. Analiza el estado y genera directivas.
+
+## OBJETIVOS ACTIVOS
+${objectivesSection}
 
 ## OUTPUT REQUERIDO
 
@@ -235,10 +306,12 @@ ${decisionsSection}
 11. No duplicar directivas pendientes de review.
 12. NO incluir secretos, tokens o API keys en el output.
 13. El output DEBE ser JSON valido que matchee el schema directive_v1 de arriba.
+14. Todas las directivas deben alinearse con al menos un objetivo activo.
+15. No generar tareas fuera del scope de los objetivos definidos.
 
 ---
 
-Analiza y genera directivas. Prioriza lo que mas avanza el proyecto.`;
+Analiza y genera directivas. Prioriza lo que mas avanza los objetivos activos.`;
 
   // Apply redact as defense layer (no secrets should be in prompt, but just in case)
   const prompt = redactPatterns(rawPrompt);
@@ -280,6 +353,16 @@ function parseAndValidateGptResponse(content: string): { directives: DirectiveV1
 // ─── Routes ───────────────────────────────────────────────────────
 export async function gptRoutes(app: FastifyInstance): Promise<void> {
 
+  // GET /ops/gpt/preconditions — verificar si se puede planificar
+  app.get("/ops/gpt/preconditions", async (): Promise<ApiResponse<PreconditionResult>> => {
+    try {
+      const result = await checkPlanningPreconditions();
+      return { ok: true, data: result };
+    } catch (e) {
+      return { ok: false, error: `Error verificando precondiciones: ${(e as Error).message}` };
+    }
+  });
+
   // POST /ops/gpt/compose — genera el prompt de contexto (sin llamar a GPT)
   app.post("/ops/gpt/compose", async (): Promise<ApiResponse<{ prompt: string; state_snapshot: StateSnapshot; char_count: number }>> => {
     try {
@@ -304,6 +387,32 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
       decision_key: "gpt_run_started",
       decision_value: { triggered_by: "api" },
     });
+
+    // 0.5 Guardrails: verificar precondiciones
+    try {
+      const preconditions = await checkPlanningPreconditions();
+      if (!preconditions.canPlan) {
+        logDecision({
+          source: "system",
+          decision_key: "gpt_run_blocked",
+          decision_value: {
+            reasons: preconditions.reasons,
+            missing_requests: preconditions.missingRequests,
+          },
+        });
+        return {
+          ok: false,
+          error: `No se puede generar plan: ${preconditions.reasons.map((r) => {
+            if (r === "wizard_not_completed") return "Falta completar la configuracion inicial";
+            if (r === "no_active_objectives") return "No hay objetivos activos";
+            if (r === "missing_required_requests") return "Faltan datos de configuracion requeridos";
+            return r;
+          }).join(". ")}`,
+        };
+      }
+    } catch {
+      // Si falla la verificacion (ej: tabla no existe todavia), continuar
+    }
 
     // 1. API key
     const openaiValues = getRequestValues("REQ-009");

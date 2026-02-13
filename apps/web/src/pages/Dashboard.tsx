@@ -75,6 +75,12 @@ export function Dashboard() {
   const [paused, setPaused] = useState(false);
   const [pauseLoading, setPauseLoading] = useState(false);
 
+  // Wizard + preconditions
+  const [wizardDone, setWizardDone] = useState<boolean | null>(null);
+  const [canPlan, setCanPlan] = useState(true);
+  const [planBlockReason, setPlanBlockReason] = useState<string>("");
+  const [activeObjectives, setActiveObjectives] = useState<{ id: string; title: string; priority: number }[]>([]);
+
   const fetchAll = useCallback(() => {
     const promises: Promise<unknown>[] = [
       apiFetch("/api/ops/metrics").then((r) => r.json()),
@@ -86,10 +92,12 @@ export function Dashboard() {
         apiFetch("/api/ops/system/status").then((r) => r.json()),
         apiFetch("/api/ops/directives").then((r) => r.json()),
         apiFetch("/api/runs").then((r) => r.json()),
+        apiFetch("/api/ops/wizard/status").then((r) => r.json()),
+        apiFetch("/api/ops/gpt/preconditions").then((r) => r.json()),
       );
     }
     Promise.all(promises)
-      .then(([mData, rData, tData, sData, dData, runsData]: unknown[]) => {
+      .then(([mData, rData, tData, sData, dData, runsData, wizData, preData]: unknown[]) => {
         const m = mData as ApiResponse<Metrics>;
         const r = rData as ApiResponse<Runner[]>;
         if (m.ok && m.data) setMetrics(m.data);
@@ -104,6 +112,26 @@ export function Dashboard() {
         if (sData) {
           const s = sData as ApiResponse<{ paused: boolean }>;
           if (s.ok && s.data) setPaused(s.data.paused);
+        }
+        // Wizard + preconditions
+        if (wizData) {
+          const wiz = wizData as ApiResponse<{ has_completed_wizard: boolean }>;
+          if (wiz.ok && wiz.data) setWizardDone(wiz.data.has_completed_wizard);
+        }
+        if (preData) {
+          const pre = preData as ApiResponse<{ canPlan: boolean; reasons: string[]; activeObjectives: { id: string; title: string; priority: number }[] }>;
+          if (pre.ok && pre.data) {
+            setCanPlan(pre.data.canPlan);
+            setActiveObjectives(pre.data.activeObjectives || []);
+            if (!pre.data.canPlan) {
+              const reasonMap: Record<string, string> = {
+                wizard_not_completed: "Completa la configuracion inicial",
+                no_active_objectives: "No hay objetivos activos",
+                missing_required_requests: "Faltan datos de configuracion",
+              };
+              setPlanBlockReason(pre.data.reasons.map((r: string) => reasonMap[r] ?? r).join(". "));
+            }
+          }
         }
         // Checklist detection
         if (dData && runsData) {
@@ -198,6 +226,22 @@ export function Dashboard() {
       <div className="p-8 max-w-3xl">
         <h2 className="text-2xl font-bold mb-6">Inicio</h2>
 
+        {/* Wizard banner */}
+        {wizardDone === false && (
+          <div className="mb-6 p-5 bg-indigo-900/30 border border-indigo-600 rounded-lg">
+            <h3 className="text-lg font-semibold mb-1">Para empezar, necesitamos conocer tu negocio</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              Completa una configuracion rapida para que el sistema sepa que hacer.
+            </p>
+            <a
+              href="#/strategy-wizard"
+              className="inline-block px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition-colors"
+            >
+              Definir estrategia
+            </a>
+          </div>
+        )}
+
         {/* Runner offline alert */}
         {onlineRunners.length === 0 && runners.length > 0 && (
           <div className="mb-6 p-4 bg-red-900/40 border border-red-700 rounded-lg flex items-center gap-3">
@@ -208,12 +252,12 @@ export function Dashboard() {
 
         {/* 3 Top action buttons with tooltips */}
         <div className="flex flex-wrap gap-3 mb-6">
-          <Tooltip text="La IA analiza el sistema y propone mejoras">
+          <Tooltip text={!canPlan ? planBlockReason : "La IA analiza el sistema y propone mejoras"}>
             <button
               onClick={runGpt}
-              disabled={gptRunning}
+              disabled={gptRunning || !canPlan}
               className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                gptRunning
+                gptRunning || !canPlan
                   ? "bg-gray-600 cursor-not-allowed text-gray-400"
                   : "bg-indigo-600 hover:bg-indigo-500 text-white"
               }`}
@@ -305,6 +349,25 @@ export function Dashboard() {
             ))}
           </div>
         </div>
+
+        {/* Objetivos activos */}
+        {activeObjectives.length > 0 && (
+          <div className="mb-8">
+            <h3 className="text-lg font-semibold mb-3">Objetivos activos</h3>
+            <div className="space-y-2">
+              {activeObjectives.map((obj) => (
+                <div key={obj.id} className="flex items-center gap-3 bg-gray-800 rounded-lg px-4 py-3">
+                  <span className="w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0" />
+                  <span className="text-sm text-gray-200 flex-1">{obj.title}</span>
+                  <span className="text-xs text-gray-500">P{obj.priority}</span>
+                </div>
+              ))}
+            </div>
+            <a href="#/objectives" className="text-xs text-blue-400 hover:underline mt-2 inline-block">
+              Ver todos los objetivos
+            </a>
+          </div>
+        )}
 
         {/* Lo próximo — top 5 ready tasks */}
         <div className="mb-8">

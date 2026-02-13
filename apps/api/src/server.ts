@@ -5,6 +5,8 @@ import { runsRoutes } from "./routes/runs.js";
 import { opsRoutes } from "./routes/ops.js";
 import { gptRoutes } from "./routes/gpt.js";
 import { decisionsRoutes } from "./routes/decisions.js";
+import { objectivesRoutes } from "./routes/objectives.js";
+import { wizardRoutes } from "./routes/wizard.js";
 import { requireAdmin } from "./auth.js";
 
 const app = Fastify({ logger: true });
@@ -33,6 +35,8 @@ await app.register(runsRoutes);
 await app.register(opsRoutes);
 await app.register(gptRoutes);
 await app.register(decisionsRoutes);
+await app.register(objectivesRoutes);
+await app.register(wizardRoutes);
 
 const port = Number(process.env.PORT) || 3001;
 const host = process.env.HOST || "0.0.0.0";

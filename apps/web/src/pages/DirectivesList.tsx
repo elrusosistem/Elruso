@@ -93,6 +93,8 @@ export function DirectivesList() {
   const [error, setError] = useState<string | null>(null);
   const [gptRunning, setGptRunning] = useState(false);
   const [gptMessage, setGptMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  const [canPlan, setCanPlan] = useState(true);
+  const [planBlockReason, setPlanBlockReason] = useState("");
   const [mode] = useUiMode();
   const isOp = mode === "operator";
 
@@ -107,7 +109,26 @@ export function DirectivesList() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchDirectives(); }, []);
+  useEffect(() => {
+    fetchDirectives();
+    // Check preconditions
+    apiFetch("/api/ops/gpt/preconditions")
+      .then((r) => r.json())
+      .then((data: ApiResponse<{ canPlan: boolean; reasons: string[] }>) => {
+        if (data.ok && data.data) {
+          setCanPlan(data.data.canPlan);
+          if (!data.data.canPlan) {
+            const reasonMap: Record<string, string> = {
+              wizard_not_completed: "Completa la configuracion inicial primero",
+              no_active_objectives: "Define un objetivo antes de generar planes",
+              missing_required_requests: "Faltan datos de configuracion requeridos",
+            };
+            setPlanBlockReason(data.data.reasons.map((r: string) => reasonMap[r] ?? r).join(". "));
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const runGpt = async () => {
     try {
@@ -191,9 +212,9 @@ export function DirectivesList() {
       <div className="flex items-center gap-4">
         <button
           onClick={runGpt}
-          disabled={gptRunning}
+          disabled={gptRunning || !canPlan}
           className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-            gptRunning
+            gptRunning || !canPlan
               ? "bg-gray-600 cursor-not-allowed text-gray-400"
               : "bg-indigo-600 hover:bg-indigo-500 text-white"
           }`}
@@ -208,7 +229,10 @@ export function DirectivesList() {
           </span>
         )}
       </div>
-      {isOp && !gptRunning && (
+      {!canPlan && (
+        <p className="text-xs text-yellow-400 mt-1">{planBlockReason}</p>
+      )}
+      {canPlan && isOp && !gptRunning && (
         <p className="text-xs text-gray-500 mt-1">Esto crea un plan que requiere tu aprobacion.</p>
       )}
     </div>

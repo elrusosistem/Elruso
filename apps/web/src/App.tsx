@@ -13,6 +13,8 @@ import { RunnersList } from "./pages/RunnersList";
 import { DecisionsList } from "./pages/DecisionsList";
 import { Dashboard } from "./pages/Dashboard";
 import { Help } from "./pages/Help";
+import { StrategyWizard } from "./pages/StrategyWizard";
+import { ObjectivesList } from "./pages/ObjectivesList";
 import { OperatorOnboardingModal } from "./components/OperatorOnboardingModal";
 
 function useHash() {
@@ -142,6 +144,7 @@ const NAV_ITEMS = [
   { path: "#/", label: "Dashboard", match: "#/" },
   { path: "#/runs", label: "Runs", match: "#/runs" },
   { path: "#/tasks", label: "Tasks", match: "#/tasks" },
+  { path: "#/objectives", label: "Objetivos", match: "#/objectives" },
   { path: "#/directives", label: "Directivas", match: "#/directives" },
   { path: "#/decisions", label: "Decisions", match: "#/decisions" },
   { path: "#/requests", label: "Requests", match: "#/requests" },
@@ -190,6 +193,10 @@ export function App() {
     page = <DecisionsList />;
   } else if (hash === "#/tasks") {
     page = <TasksList />;
+  } else if (hash === "#/strategy-wizard") {
+    page = <StrategyWizard />;
+  } else if (hash === "#/objectives") {
+    page = <ObjectivesList />;
   } else if (hash === "#/runners") {
     page = <RunnersList />;
   } else if (hash === "#/help") {
