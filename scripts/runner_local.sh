@@ -126,17 +126,17 @@ process_task() {
 
   log "  task claimed (runner: ${RUNNER_ID})"
 
-  # 2. Obtener info git
-  local branch="" commit_hash=""
+  # 2. Capturar BEFORE_SHA (antes de ejecutar steps)
+  local branch="" before_sha=""
   branch=$(git -C "$ROOT" branch --show-current 2>/dev/null || echo "unknown")
-  commit_hash=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+  before_sha=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
   # 3. Crear RUN via API
   local run_response="" run_id=""
   run_response=$(api_post "/runs" "{
     \"task_id\": \"${task_id}\",
     \"branch\": \"${branch}\",
-    \"commit_hash\": \"${commit_hash}\"
+    \"commit_hash\": \"${before_sha}\"
   }")
 
   if [ -z "$run_response" ]; then
@@ -153,7 +153,7 @@ process_task() {
     return 1
   fi
 
-  log "  run creado: ${run_id}"
+  log "  run creado: ${run_id} (before_sha: ${before_sha})"
 
   # 4. Ejecutar steps
   local all_ok=true
@@ -168,10 +168,21 @@ process_task() {
   ec=$(run_step "$run_id" "git-head" "git -C ${ROOT} rev-parse --short HEAD")
   [ "$ec" -ne 0 ] 2>/dev/null && all_ok=false
 
-  # 5. Capturar file_changes via git
+  # 5. Capturar AFTER_SHA (despues de steps)
+  local after_sha=""
+  after_sha=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+  log "  after_sha: ${after_sha}"
+
+  # 6. Generar file_changes via git diff
   local file_changes_json="[]"
   local diff_output=""
-  diff_output=$(git -C "$ROOT" diff --name-status HEAD~1 HEAD 2>/dev/null || echo "")
+
+  if [ "$before_sha" != "unknown" ] && [ "$after_sha" != "unknown" ] && [ "$before_sha" != "$after_sha" ]; then
+    diff_output=$(git -C "$ROOT" diff --name-status "${before_sha}" "${after_sha}" 2>/dev/null || echo "")
+  else
+    # Same SHA — try HEAD~1..HEAD como fallback
+    diff_output=$(git -C "$ROOT" diff --name-status HEAD~1 HEAD 2>/dev/null || echo "")
+  fi
 
   if [ -n "$diff_output" ]; then
     local fc_tmp=""
@@ -185,37 +196,75 @@ process_task() {
       esac
       fc_tmp="${fc_tmp}{\"path\":\"${fc_path}\",\"change_type\":\"${fc_type}\"},"
     done <<< "$diff_output"
-    # Quitar ultima coma y envolver en array
     fc_tmp="${fc_tmp%,}"
     file_changes_json="[${fc_tmp}]"
   fi
 
-  # Guardar patch redactado en reports/runs/<run_id>/
-  local patch_dir="${ROOT}/reports/runs/${run_id}"
-  local patch_path=""
+  # 7. Generar diffstat + patch + redaccion forense
+  local diffstat="" raw_patch="" redacted_patch="" patch_dir=""
+  patch_dir="${ROOT}/reports/runs/${run_id}"
   mkdir -p "$patch_dir" 2>/dev/null || true
-  local raw_patch=""
-  raw_patch=$(git -C "$ROOT" diff HEAD~1 HEAD 2>/dev/null || echo "")
-  if [ -n "$raw_patch" ]; then
-    # Redactar patrones de secretos del patch
-    local redacted_patch=""
-    redacted_patch=$(echo "$raw_patch" | sed -E \
-      -e 's/sk-[A-Za-z0-9_-]{20,}/sk-***REDACTED***/g' \
-      -e 's/rnd_[A-Za-z0-9_-]{20,}/rnd_***REDACTED***/g' \
-      -e 's/eyJ[A-Za-z0-9_-]{40,}/***JWT_REDACTED***/g' \
-      -e 's/Authorization: Bearer [^ ]*/Authorization: Bearer ***REDACTED***/g' \
-      -e 's/apikey: [^ ]*/apikey: ***REDACTED***/g')
-    echo "$redacted_patch" > "${patch_dir}/patch_redacted.diff"
-    patch_path="reports/runs/${run_id}/patch_redacted.diff"
-    log "  patch guardado: ${patch_path}"
+
+  if [ "$before_sha" != "unknown" ] && [ "$after_sha" != "unknown" ] && [ "$before_sha" != "$after_sha" ]; then
+    diffstat=$(git -C "$ROOT" diff --stat "${before_sha}" "${after_sha}" 2>/dev/null || echo "0 files changed")
+    raw_patch=$(git -C "$ROOT" diff "${before_sha}" "${after_sha}" 2>/dev/null || echo "")
+  else
+    diffstat=$(git -C "$ROOT" diff --stat HEAD~1 HEAD 2>/dev/null || echo "0 files changed")
+    raw_patch=$(git -C "$ROOT" diff HEAD~1 HEAD 2>/dev/null || echo "")
   fi
 
-  # Guardar diffstat
-  local diffstat=""
-  diffstat=$(git -C "$ROOT" diff --stat HEAD~1 HEAD 2>/dev/null || echo "sin cambios")
-  echo "$diffstat" > "${patch_dir}/diffstat.txt"
+  # Redactar patch via node (MISMOS patterns que redact.ts)
+  if [ -n "$raw_patch" ]; then
+    if command -v node &>/dev/null && [ -f "${ROOT}/scripts/redact_patch.mjs" ]; then
+      redacted_patch=$(echo "$raw_patch" | node "${ROOT}/scripts/redact_patch.mjs" 2>/dev/null)
+      local redact_exit=$?
+      if [ $redact_exit -ne 0 ]; then
+        log "  ERROR: redact_patch.mjs fallo (exit ${redact_exit}). Patch NO guardado (seguridad)"
+        redacted_patch=""
+      fi
+    else
+      log "  WARN: node o redact_patch.mjs no disponible. Patch NO guardado"
+      redacted_patch=""
+    fi
+  else
+    redacted_patch=""
+    log "  sin cambios de codigo (patch vacio)"
+  fi
 
-  # 6. Finalizar RUN
+  # Guardar localmente
+  echo "$diffstat" > "${patch_dir}/diffstat.txt"
+  if [ -n "$redacted_patch" ]; then
+    echo "$redacted_patch" > "${patch_dir}/patch_redacted.diff"
+    log "  patch guardado local: reports/runs/${run_id}/"
+  fi
+
+  # 8. Upload artifacts via API
+  local escaped_diffstat="" escaped_patch=""
+  escaped_diffstat=$(echo "$diffstat" | jq -Rs '.' 2>/dev/null || echo '""')
+
+  if [ -n "$redacted_patch" ]; then
+    escaped_patch=$(echo "$redacted_patch" | jq -Rs '.' 2>/dev/null || echo '""')
+  else
+    escaped_patch='""'
+  fi
+
+  local artifacts_response=""
+  artifacts_response=$(api_post "/runs/${run_id}/artifacts" "{
+    \"diffstat\": ${escaped_diffstat},
+    \"patch_redacted\": ${escaped_patch},
+    \"before_sha\": \"${before_sha}\",
+    \"after_sha\": \"${after_sha}\"
+  }")
+
+  local artifacts_ok=""
+  artifacts_ok=$(echo "$artifacts_response" | jq -r '.ok // false' 2>/dev/null || echo "false")
+  if [ "$artifacts_ok" = "true" ]; then
+    log "  artifacts subidos a API"
+  else
+    log "  WARN: no se pudieron subir artifacts ($(echo "$artifacts_response" | jq -r '.error // "sin respuesta"' 2>/dev/null || echo "sin respuesta"))"
+  fi
+
+  # 9. Finalizar RUN
   local final_status="done"
   if [ "$all_ok" = false ]; then
     final_status="failed"
@@ -224,7 +273,7 @@ process_task() {
   local file_count=0
   file_count=$(echo "$file_changes_json" | jq 'length' 2>/dev/null || echo "0")
 
-  local summary="Task ${task_id} ejecutada por runner_local. Steps: 3. File changes: ${file_count}. Status: ${final_status}. Branch: ${branch}. Commit: ${commit_hash}."
+  local summary="Task ${task_id} ejecutada por runner_local. Steps: 3. Files: ${file_count}. Status: ${final_status}. Branch: ${branch}. SHA: ${before_sha}..${after_sha}."
   local escaped_summary=""
   escaped_summary=$(echo "$summary" | jq -Rs '.' 2>/dev/null || echo '""')
 
@@ -234,14 +283,13 @@ process_task() {
     \"file_changes\": ${file_changes_json}
   }" > /dev/null 2>&1 || log "  WARN: no se pudo finalizar run"
 
-  log "  run -> ${final_status} (${file_count} file_changes)"
+  log "  run -> ${final_status} (${file_count} file_changes, diffstat: $(echo "$diffstat" | tail -1))"
 
-  # 7. Marcar task segun resultado
+  # 10. Marcar task segun resultado
   if [ "$final_status" = "done" ]; then
     api_patch "/ops/tasks/${task_id}" "{\"status\":\"done\",\"finished_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > /dev/null 2>&1 || true
     log "  task -> done"
   else
-    # Obtener attempts actuales
     local task_info="" attempts=0 max_attempts=3
     task_info=$(api_get "/ops/tasks?status=running" | jq -r ".data[] | select(.id==\"${task_id}\")" 2>/dev/null || echo "")
     attempts=$(echo "${task_info:-{}}" | jq -r '.attempts // 0' 2>/dev/null || echo "0")
@@ -249,7 +297,6 @@ process_task() {
     attempts=$((attempts + 1))
 
     if [ "$attempts" -lt "$max_attempts" ]; then
-      # Retry con backoff exponencial: 10s, 30s, 120s
       local backoff=10
       if [ "$attempts" -eq 2 ]; then backoff=30; fi
       if [ "$attempts" -ge 3 ]; then backoff=120; fi
@@ -260,7 +307,6 @@ process_task() {
       api_patch "/ops/tasks/${task_id}" "{\"status\":\"ready\",\"attempts\":${attempts},\"next_run_at\":\"${next_run}\",\"last_error\":\"steps failed (${attempts}/${max_attempts})\"}" > /dev/null 2>&1 || true
       log "  task -> retry ${attempts}/${max_attempts} (next_run: +${backoff}s)"
     else
-      # Hard-stop: blocked + finished_at
       local finished_at=""
       finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       api_patch "/ops/tasks/${task_id}" "{\"status\":\"blocked\",\"attempts\":${attempts},\"finished_at\":\"${finished_at}\",\"last_error\":\"max_attempts_reached (${attempts}/${max_attempts})\"}" > /dev/null 2>&1 || true

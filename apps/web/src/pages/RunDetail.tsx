@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ApiResponse, RunDetail as RunDetailType } from "@elruso/types";
+import type { ApiResponse, RunDetail as RunDetailType, FileChange } from "@elruso/types";
 
 const STATUS_COLORS: Record<string, string> = {
   running: "text-blue-400",
@@ -12,6 +12,8 @@ export function RunDetail({ runId }: { runId: string }) {
   const [run, setRun] = useState<RunDetailType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [patch, setPatch] = useState<string | null>(null);
+  const [showPatch, setShowPatch] = useState(false);
 
   useEffect(() => {
     fetch(`/api/runs/${runId}`)
@@ -132,7 +134,7 @@ export function RunDetail({ runId }: { runId: string }) {
       </div>
 
       {/* File Changes */}
-      <div>
+      <div className="mb-8">
         <h3 className="text-lg font-semibold mb-3">
           Archivos ({run.file_changes.length})
         </h3>
@@ -141,28 +143,65 @@ export function RunDetail({ runId }: { runId: string }) {
         ) : (
           <div className="bg-gray-800 rounded-lg divide-y divide-gray-700">
             {run.file_changes.map((fc) => (
-              <div key={fc.id} className="px-3 py-2 flex items-center gap-2 text-sm">
-                <span
-                  className={`text-xs font-mono px-1.5 py-0.5 rounded ${
-                    fc.change_type === "added"
-                      ? "bg-green-900/40 text-green-400"
-                      : fc.change_type === "deleted"
-                        ? "bg-red-900/40 text-red-400"
-                        : fc.change_type === "renamed"
-                          ? "bg-blue-900/40 text-blue-400"
-                          : "bg-yellow-900/40 text-yellow-400"
-                  }`}
-                >
-                  {fc.change_type[0].toUpperCase()}
-                </span>
-                <span className="font-mono text-gray-300 truncate">
-                  {fc.path}
-                </span>
+              <div key={fc.id} className="px-3 py-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`text-xs font-mono px-1.5 py-0.5 rounded ${
+                      fc.change_type === "added"
+                        ? "bg-green-900/40 text-green-400"
+                        : fc.change_type === "deleted"
+                          ? "bg-red-900/40 text-red-400"
+                          : fc.change_type === "renamed"
+                            ? "bg-blue-900/40 text-blue-400"
+                            : "bg-yellow-900/40 text-yellow-400"
+                    }`}
+                  >
+                    {fc.change_type[0].toUpperCase()}
+                  </span>
+                  <span className="font-mono text-gray-300 truncate">
+                    {fc.path}
+                  </span>
+                </div>
+                {fc.diffstat && (
+                  <pre className="text-xs text-gray-500 mt-1 ml-8 whitespace-pre-wrap">{fc.diffstat}</pre>
+                )}
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Patch Forense */}
+      {run.artifact_path && (
+        <div>
+          <h3 className="text-lg font-semibold mb-3">Patch Forense</h3>
+          <button
+            onClick={() => {
+              if (showPatch) {
+                setShowPatch(false);
+              } else {
+                fetch(`/api/runs/${runId}/artifacts/patch`)
+                  .then((r) => r.json())
+                  .then((data: ApiResponse<{ patch: string }>) => {
+                    if (data.ok && data.data) {
+                      setPatch(data.data.patch);
+                      setShowPatch(true);
+                    }
+                  })
+                  .catch(() => setPatch("Error cargando patch"));
+              }
+            }}
+            className="text-sm px-3 py-1.5 bg-purple-800 hover:bg-purple-700 rounded transition-colors mb-3"
+          >
+            {showPatch ? "Ocultar patch" : "Ver patch redacted"}
+          </button>
+          {showPatch && patch && (
+            <pre className="bg-gray-900 border border-gray-700 rounded-lg p-4 text-xs text-gray-300 overflow-auto max-h-96 whitespace-pre font-mono">
+              {patch}
+            </pre>
+          )}
+        </div>
+      )}
     </div>
   );
 }

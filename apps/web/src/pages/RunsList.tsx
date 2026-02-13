@@ -69,6 +69,11 @@ export function RunsList() {
                 {new Date(run.started_at).toLocaleString("es-AR")}
               </div>
             </div>
+            {run.artifact_path && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-purple-800 text-purple-200" title="Patch forense disponible">
+                PATCH
+              </span>
+            )}
             <span className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 uppercase">
               {run.status}
             </span>
