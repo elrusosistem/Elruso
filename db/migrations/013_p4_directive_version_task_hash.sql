@@ -12,6 +12,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ops_tasks_task_hash
   ON ops_tasks (task_hash) WHERE task_hash IS NOT NULL;
 
 -- Track migration
-INSERT INTO _migrations (name, applied_at)
-VALUES ('013_p4_directive_version_task_hash', NOW())
+INSERT INTO _migrations (filename, applied_at)
+VALUES ('013_p4_directive_version_task_hash.sql', NOW())
 ON CONFLICT DO NOTHING;
