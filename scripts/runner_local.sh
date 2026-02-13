@@ -107,37 +107,19 @@ run_step() {
   echo "$exit_code"
 }
 
-# ─── Procesar una task ───────────────────────────────────────────────
+# ─── Procesar una task ya claimed ────────────────────────────────────
 process_task() {
   local task_id="$1"
   local task_title="$2"
 
   log "=== Procesando: ${task_id} — ${task_title} ==="
 
-  # 1. Atomic claim
-  local claim_response=""
-  claim_response=$(api_post "/ops/tasks/claim" "{\"task_id\":\"${task_id}\",\"runner_id\":\"${RUNNER_ID}\"}")
-
-  if [ -z "$claim_response" ]; then
-    log "  WARN: task no elegible o ya claimed, saltando"
-    return 2
-  fi
-
-  local claim_ok=""
-  claim_ok=$(echo "$claim_response" | jq -r '.ok // false' 2>/dev/null || echo "false")
-  if [ "$claim_ok" != "true" ]; then
-    log "  WARN: task no elegible o ya claimed (409), saltando"
-    return 2
-  fi
-
-  log "  task claimed (runner: ${RUNNER_ID})"
-
-  # 2. Capturar BEFORE_SHA (antes de ejecutar steps)
+  # 1. Capturar BEFORE_SHA
   local branch="" before_sha=""
   branch=$(git -C "$ROOT" branch --show-current 2>/dev/null || echo "unknown")
   before_sha=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
-  # 3. Crear RUN via API
+  # 2. Crear RUN via API
   local run_response="" run_id=""
   run_response=$(api_post "/runs" "{
     \"task_id\": \"${task_id}\",
@@ -145,23 +127,17 @@ process_task() {
     \"commit_hash\": \"${before_sha}\"
   }")
 
-  if [ -z "$run_response" ]; then
-    log "  ERROR: no se pudo crear run (API no respondio)"
-    api_patch "/ops/tasks/${task_id}" '{"status":"failed"}' > /dev/null 2>&1 || true
-    return 1
-  fi
-
   run_id=$(echo "$run_response" | jq -r '.data.id // empty' 2>/dev/null || echo "")
 
   if [ -z "$run_id" ]; then
-    log "  ERROR: no se pudo crear run. Respuesta: ${run_response}"
-    api_patch "/ops/tasks/${task_id}" '{"status":"failed"}' > /dev/null 2>&1 || true
+    log "  ERROR: no se pudo crear run"
+    requeue_task "$task_id" "failed to create run"
     return 1
   fi
 
   log "  run creado: ${run_id} (before_sha: ${before_sha})"
 
-  # 4. Ejecutar steps
+  # 3. Ejecutar steps
   local all_ok=true
   local ec=""
 
@@ -174,19 +150,18 @@ process_task() {
   ec=$(run_step "$run_id" "git-head" "git -C ${ROOT} rev-parse --short HEAD")
   [ "$ec" -ne 0 ] 2>/dev/null && all_ok=false
 
-  # 5. Capturar AFTER_SHA (despues de steps)
+  # 4. Capturar AFTER_SHA
   local after_sha=""
   after_sha=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
   log "  after_sha: ${after_sha}"
 
-  # 6. Generar file_changes via git diff
+  # 5. Generar file_changes via git diff
   local file_changes_json="[]"
   local diff_output=""
 
   if [ "$before_sha" != "unknown" ] && [ "$after_sha" != "unknown" ] && [ "$before_sha" != "$after_sha" ]; then
     diff_output=$(git -C "$ROOT" diff --name-status "${before_sha}" "${after_sha}" 2>/dev/null || echo "")
   else
-    # Same SHA — try HEAD~1..HEAD como fallback
     diff_output=$(git -C "$ROOT" diff --name-status HEAD~1 HEAD 2>/dev/null || echo "")
   fi
 
@@ -206,7 +181,7 @@ process_task() {
     file_changes_json="[${fc_tmp}]"
   fi
 
-  # 7. Generar diffstat + patch + redaccion forense
+  # 6. Generar diffstat + patch + redaccion forense
   local diffstat="" raw_patch="" redacted_patch="" patch_dir=""
   patch_dir="${ROOT}/reports/runs/${run_id}"
   mkdir -p "$patch_dir" 2>/dev/null || true
@@ -219,13 +194,12 @@ process_task() {
     raw_patch=$(git -C "$ROOT" diff HEAD~1 HEAD 2>/dev/null || echo "")
   fi
 
-  # Redactar patch via node (MISMOS patterns que redact.ts)
   if [ -n "$raw_patch" ]; then
     if command -v node &>/dev/null && [ -f "${ROOT}/scripts/redact_patch.mjs" ]; then
       redacted_patch=$(echo "$raw_patch" | node "${ROOT}/scripts/redact_patch.mjs" 2>/dev/null)
       local redact_exit=$?
       if [ $redact_exit -ne 0 ]; then
-        log "  ERROR: redact_patch.mjs fallo (exit ${redact_exit}). Patch NO guardado (seguridad)"
+        log "  ERROR: redact_patch.mjs fallo (exit ${redact_exit}). Patch NO guardado"
         redacted_patch=""
       fi
     else
@@ -237,40 +211,29 @@ process_task() {
     log "  sin cambios de codigo (patch vacio)"
   fi
 
-  # Guardar localmente
   echo "$diffstat" > "${patch_dir}/diffstat.txt"
   if [ -n "$redacted_patch" ]; then
     echo "$redacted_patch" > "${patch_dir}/patch_redacted.diff"
     log "  patch guardado local: reports/runs/${run_id}/"
   fi
 
-  # 8. Upload artifacts via API
+  # 7. Upload artifacts via API
   local escaped_diffstat="" escaped_patch=""
   escaped_diffstat=$(echo "$diffstat" | jq -Rs '.' 2>/dev/null || echo '""')
-
   if [ -n "$redacted_patch" ]; then
     escaped_patch=$(echo "$redacted_patch" | jq -Rs '.' 2>/dev/null || echo '""')
   else
     escaped_patch='""'
   fi
 
-  local artifacts_response=""
-  artifacts_response=$(api_post "/runs/${run_id}/artifacts" "{
+  api_post "/runs/${run_id}/artifacts" "{
     \"diffstat\": ${escaped_diffstat},
     \"patch_redacted\": ${escaped_patch},
     \"before_sha\": \"${before_sha}\",
     \"after_sha\": \"${after_sha}\"
-  }")
+  }" > /dev/null 2>&1 || log "  WARN: no se pudieron subir artifacts"
 
-  local artifacts_ok=""
-  artifacts_ok=$(echo "$artifacts_response" | jq -r '.ok // false' 2>/dev/null || echo "false")
-  if [ "$artifacts_ok" = "true" ]; then
-    log "  artifacts subidos a API"
-  else
-    log "  WARN: no se pudieron subir artifacts ($(echo "$artifacts_response" | jq -r '.error // "sin respuesta"' 2>/dev/null || echo "sin respuesta"))"
-  fi
-
-  # 9. Finalizar RUN
+  # 8. Finalizar RUN
   local final_status="done"
   if [ "$all_ok" = false ]; then
     final_status="failed"
@@ -279,7 +242,7 @@ process_task() {
   local file_count=0
   file_count=$(echo "$file_changes_json" | jq 'length' 2>/dev/null || echo "0")
 
-  local summary="Task ${task_id} ejecutada por runner_local. Steps: 3. Files: ${file_count}. Status: ${final_status}. Branch: ${branch}. SHA: ${before_sha}..${after_sha}."
+  local summary="Task ${task_id}. Steps: 3. Files: ${file_count}. Status: ${final_status}. SHA: ${before_sha}..${after_sha}."
   local escaped_summary=""
   escaped_summary=$(echo "$summary" | jq -Rs '.' 2>/dev/null || echo '""')
 
@@ -289,39 +252,61 @@ process_task() {
     \"file_changes\": ${file_changes_json}
   }" > /dev/null 2>&1 || log "  WARN: no se pudo finalizar run"
 
-  log "  run -> ${final_status} (${file_count} file_changes, diffstat: $(echo "$diffstat" | tail -1))"
+  log "  run -> ${final_status} (${file_count} files, diffstat: $(echo "$diffstat" | tail -1))"
 
-  # 10. Marcar task segun resultado
+  # 9. Marcar task segun resultado
   if [ "$final_status" = "done" ]; then
     api_patch "/ops/tasks/${task_id}" "{\"status\":\"done\",\"finished_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > /dev/null 2>&1 || true
     log "  task -> done"
   else
-    local task_info="" attempts=0 max_attempts=3
-    task_info=$(api_get "/ops/tasks?status=running" | jq -r ".data[] | select(.id==\"${task_id}\")" 2>/dev/null || echo "")
-    attempts=$(echo "${task_info:-{}}" | jq -r '.attempts // 0' 2>/dev/null || echo "0")
-    max_attempts=$(echo "${task_info:-{}}" | jq -r '.max_attempts // 3' 2>/dev/null || echo "3")
-    attempts=$((attempts + 1))
+    # Requeue con backoff escalonado via API (30/60/120)
+    local attempt_num=""
+    attempt_num=$(echo "$run_response" | jq -r '.data.attempts // 0' 2>/dev/null || echo "0")
+    # Backoff: 30s base, doubles per attempt
+    local backoff=30
+    if [ "$attempt_num" -ge 1 ] 2>/dev/null; then backoff=60; fi
+    if [ "$attempt_num" -ge 2 ] 2>/dev/null; then backoff=120; fi
 
-    if [ "$attempts" -lt "$max_attempts" ]; then
-      local backoff=10
-      if [ "$attempts" -eq 2 ]; then backoff=30; fi
-      if [ "$attempts" -ge 3 ]; then backoff=120; fi
-
-      local next_run=""
-      next_run=$(date -u -v+${backoff}S +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "+${backoff} seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
-
-      api_patch "/ops/tasks/${task_id}" "{\"status\":\"ready\",\"attempts\":${attempts},\"next_run_at\":\"${next_run}\",\"last_error\":\"steps failed (${attempts}/${max_attempts})\"}" > /dev/null 2>&1 || true
-      log "  task -> retry ${attempts}/${max_attempts} (next_run: +${backoff}s)"
-    else
-      local finished_at=""
-      finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-      api_patch "/ops/tasks/${task_id}" "{\"status\":\"blocked\",\"attempts\":${attempts},\"finished_at\":\"${finished_at}\",\"last_error\":\"max_attempts_reached (${attempts}/${max_attempts})\"}" > /dev/null 2>&1 || true
-      log "  task -> blocked (max attempts reached, hard-stop)"
-    fi
+    requeue_task "$task_id" "steps failed (exit_code=${ec})" "$backoff"
   fi
 
   log "=== Fin: ${task_id} ==="
   return 0
+}
+
+# ─── Requeue via API ────────────────────────────────────────────────
+requeue_task() {
+  local task_id="$1"
+  local error_msg="${2:-unknown error}"
+  local backoff="${3:-30}"
+
+  # Redactar error (quitar posibles secrets)
+  local safe_error=""
+  safe_error=$(echo "$error_msg" | head -c 200)
+
+  local escaped_error=""
+  escaped_error=$(echo "$safe_error" | jq -Rs '.' 2>/dev/null || echo '"unknown"')
+
+  local requeue_response=""
+  requeue_response=$(api_post "/ops/tasks/${task_id}/requeue" "{\"backoff_seconds\":${backoff},\"last_error\":${escaped_error}}")
+
+  local requeue_ok=""
+  requeue_ok=$(echo "$requeue_response" | jq -r '.ok // false' 2>/dev/null || echo "false")
+
+  if [ "$requeue_ok" = "true" ]; then
+    local new_status=""
+    new_status=$(echo "$requeue_response" | jq -r '.data.status // "?"' 2>/dev/null || echo "?")
+    if [ "$new_status" = "blocked" ]; then
+      log "  task -> BLOCKED (max attempts reached)"
+    else
+      local new_attempts=""
+      new_attempts=$(echo "$requeue_response" | jq -r '.data.attempts // "?"' 2>/dev/null || echo "?")
+      log "  task -> requeued (attempt ${new_attempts}, backoff ${backoff}s)"
+    fi
+  else
+    log "  WARN: requeue failed, marking task failed"
+    api_patch "/ops/tasks/${task_id}" "{\"status\":\"failed\",\"last_error\":${escaped_error}}" > /dev/null 2>&1 || true
+  fi
 }
 
 # ─── Anti-stuck sweep ────────────────────────────────────────────────
@@ -371,32 +356,40 @@ run_once() {
   # Heartbeat
   send_heartbeat
 
-  # Buscar primera task READY
-  local tasks_response=""
-  tasks_response=$(api_get "/ops/tasks?status=ready")
+  # Claim via server-side selection (no GET previo)
+  local claim_response=""
+  claim_response=$(api_post "/ops/tasks/claim" "{\"runner_id\":\"${RUNNER_ID}\"}")
 
-  if [ -z "$tasks_response" ]; then
-    log "WARN: no se pudo consultar tasks. API disponible en ${API_BASE_URL}?"
+  if [ -z "$claim_response" ]; then
+    log "WARN: API no respondio. Disponible en ${API_BASE_URL}?"
     return 1
   fi
 
-  local ok=""
-  ok=$(echo "$tasks_response" | jq -r '.ok' 2>/dev/null || echo "false")
+  local claim_ok=""
+  claim_ok=$(echo "$claim_response" | jq -r '.ok // false' 2>/dev/null || echo "false")
 
-  if [ "$ok" != "true" ]; then
-    log "WARN: API respondio con error: $(echo "$tasks_response" | jq -r '.error // "desconocido"' 2>/dev/null || echo "desconocido")"
+  if [ "$claim_ok" != "true" ]; then
+    local claim_error=""
+    claim_error=$(echo "$claim_response" | jq -r '.error // "desconocido"' 2>/dev/null || echo "desconocido")
+    if [ "$claim_error" = "system_paused" ]; then
+      log "Sistema PAUSADO. Esperando..."
+    else
+      log "WARN: claim error: $claim_error"
+    fi
     return 1
   fi
 
-  # Extraer primera task
+  # Server devuelve null si no hay task elegible
   local task_id="" task_title=""
-  task_id=$(echo "$tasks_response" | jq -r '.data[0].id // empty' 2>/dev/null || echo "")
-  task_title=$(echo "$tasks_response" | jq -r '.data[0].title // empty' 2>/dev/null || echo "")
+  task_id=$(echo "$claim_response" | jq -r '.data.id // empty' 2>/dev/null || echo "")
 
   if [ -z "$task_id" ]; then
-    log "No hay tasks READY."
+    log "Sin tasks elegibles."
     return 2
   fi
+
+  task_title=$(echo "$claim_response" | jq -r '.data.title // empty' 2>/dev/null || echo "")
+  log "Claimed: ${task_id} — ${task_title}"
 
   process_task "$task_id" "$task_title"
 }

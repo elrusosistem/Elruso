@@ -377,38 +377,60 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
-  app.patch<{ Params: { id: string }; Body: { status: string } }>(
+  app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>(
     "/ops/tasks/:id",
     async (request): Promise<ApiResponse<TaskEntry>> => {
       const { id } = request.params;
-      const { status } = request.body as { status: string };
+      const body = request.body as Record<string, unknown>;
+      const status = body.status as string | undefined;
 
       const validStatuses = ["ready", "running", "done", "failed", "blocked"];
-      if (!validStatuses.includes(status)) {
+      if (status && !validStatuses.includes(status)) {
         return { ok: false, error: `Status invalido. Opciones: ${validStatuses.join(", ")}` };
+      }
+
+      // Build update payload — only set fields that are provided
+      const allowed = ["status", "finished_at", "last_error", "attempts", "next_run_at", "claimed_by", "claimed_at", "worker_id"];
+      const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      for (const key of allowed) {
+        if (key in body) update[key] = body[key];
       }
 
       const db = getDb();
       const { data, error } = await db
         .from("ops_tasks")
-        .update({ status, updated_at: new Date().toISOString() })
+        .update(update)
         .eq("id", id)
         .select()
         .single();
       if (error) return { ok: false, error: error.message };
+
+      // Log decision on terminal status changes
+      if (status === "done") {
+        logDecision({
+          source: "system",
+          decision_key: "task_completed",
+          decision_value: { task_id: id },
+        });
+      } else if (status === "failed") {
+        logDecision({
+          source: "system",
+          decision_key: "task_failed",
+          decision_value: { task_id: id, last_error: body.last_error || null },
+        });
+      }
+
       return { ok: true, data: data as TaskEntry };
     }
   );
 
-  // POST /ops/tasks/claim — Atomic claim with eligibility check (deps + next_run_at + system_paused)
-  app.post<{ Body: { task_id: string; runner_id: string } }>(
+  // POST /ops/tasks/claim — Atomic claim: server picks best eligible task
+  // Input: { runner_id?: string }  (task_id optional for backwards compat)
+  // Selection: status=ready, next_run_at respected, deps done, ORDER BY phase DESC, created_at ASC
+  app.post<{ Body: { runner_id?: string; task_id?: string } }>(
     "/ops/tasks/claim",
-    async (request, reply): Promise<ApiResponse<TaskEntry>> => {
-      const { task_id, runner_id } = request.body as { task_id: string; runner_id: string };
-
-      if (!task_id || !runner_id) {
-        return { ok: false, error: "task_id y runner_id son requeridos" };
-      }
+    async (request, reply): Promise<ApiResponse<TaskEntry | null>> => {
+      const { runner_id, task_id } = request.body as { runner_id?: string; task_id?: string };
 
       const db = getDb();
       const now = new Date().toISOString();
@@ -423,74 +445,115 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       if (!stateError && systemState) {
         const isPaused = systemState.value === true || systemState.value === "true";
         if (isPaused) {
-          reply.code(423); // 423 Locked
+          reply.code(423);
           return { ok: false, error: "system_paused" };
         }
       }
 
-      // 1. Verificar deps: obtener task y chequear que depends_on estén DONE
-      const { data: taskData, error: fetchError } = await db
+      // 1. Fetch candidate tasks: READY, next_run_at respected, ordered by priority
+      let query = db
         .from("ops_tasks")
-        .select("depends_on")
-        .eq("id", task_id)
-        .single();
-
-      if (fetchError || !taskData) {
-        reply.code(404);
-        return { ok: false, error: "task_not_found" };
-      }
-
-      const depends_on = (taskData.depends_on as string[]) || [];
-      if (depends_on.length > 0) {
-        // Verificar que todas las deps estén done
-        const { data: depsData, error: depsError } = await db
-          .from("ops_tasks")
-          .select("id, status")
-          .in("id", depends_on);
-
-        if (depsError) {
-          return { ok: false, error: "error_checking_dependencies" };
-        }
-
-        const notDone = (depsData || []).filter((d) => d.status !== "done");
-        if (notDone.length > 0) {
-          reply.code(409);
-          return { ok: false, error: `dependencies_not_done: ${notDone.map((d) => d.id).join(", ")}` };
-        }
-      }
-
-      // 2. Atomic update: solo si status='ready' AND (next_run_at is null OR next_run_at <= now)
-      const { data, error } = await db
-        .from("ops_tasks")
-        .update({
-          status: "running",
-          worker_id: runner_id,
-          claimed_by: runner_id,
-          claimed_at: now,
-          started_at: now,
-          updated_at: now,
-        })
-        .eq("id", task_id)
+        .select("*")
         .eq("status", "ready")
         .or(`next_run_at.is.null,next_run_at.lte.${now}`)
-        .select()
-        .single();
+        .order("phase", { ascending: false })
+        .order("created_at", { ascending: true });
 
-      if (error || !data) {
-        reply.code(409);
-        return { ok: false, error: "task_not_eligible_or_already_claimed" };
+      // If specific task_id requested (backwards compat), filter to it
+      if (task_id) {
+        query = query.eq("id", task_id);
       }
 
-      return { ok: true, data: data as TaskEntry };
+      const { data: candidates, error: fetchError } = await query;
+
+      if (fetchError) {
+        return { ok: false, error: fetchError.message };
+      }
+
+      if (!candidates || candidates.length === 0) {
+        return { ok: true, data: null };
+      }
+
+      // 2. For each candidate, check deps — find first eligible
+      for (const candidate of candidates) {
+        const depends_on = (candidate.depends_on as string[]) || [];
+
+        if (depends_on.length > 0) {
+          const { data: depsData } = await db
+            .from("ops_tasks")
+            .select("id, status")
+            .in("id", depends_on);
+
+          const foundIds = new Set((depsData || []).map((d) => d.id as string));
+          const missing = depends_on.filter((depId) => !foundIds.has(depId));
+
+          // Deps inexistentes → marcar BLOCKED y loggear
+          if (missing.length > 0) {
+            await db
+              .from("ops_tasks")
+              .update({
+                status: "blocked",
+                last_error: `deps_not_found: ${missing.join(", ")}`,
+                updated_at: now,
+              })
+              .eq("id", candidate.id);
+
+            logDecision({
+              source: "system",
+              decision_key: "task_blocked_missing_deps",
+              decision_value: { task_id: candidate.id, missing_deps: missing },
+            });
+            continue; // Skip to next candidate
+          }
+
+          const notDone = (depsData || []).filter((d) => d.status !== "done");
+          if (notDone.length > 0) {
+            continue; // Skip — deps not yet done
+          }
+        }
+
+        // 3. Atomic claim: UPDATE with guards
+        const { data: claimed, error: claimError } = await db
+          .from("ops_tasks")
+          .update({
+            status: "running",
+            worker_id: runner_id || "unknown",
+            claimed_by: runner_id || "unknown",
+            claimed_at: now,
+            started_at: now,
+            updated_at: now,
+          })
+          .eq("id", candidate.id)
+          .eq("status", "ready")
+          .or(`next_run_at.is.null,next_run_at.lte.${now}`)
+          .select()
+          .single();
+
+        if (!claimError && claimed) {
+          logDecision({
+            source: "system",
+            decision_key: "task_claimed",
+            decision_value: { task_id: candidate.id, runner_id: runner_id || "unknown" },
+          });
+          return { ok: true, data: claimed as TaskEntry };
+        }
+        // If claim failed (race condition), try next candidate
+      }
+
+      // No eligible task found
+      return { ok: true, data: null };
     }
   );
 
-  // POST /ops/tasks/:id/requeue — Requeue stuck task (increments attempts)
-  app.post<{ Params: { id: string }; Body: { backoff_seconds?: number } }>(
+  // POST /ops/tasks/:id/requeue — Requeue task (increments attempts, backoff, or hard-stop)
+  app.post<{ Params: { id: string }; Body: { backoff_seconds?: number; last_error?: string } }>(
     "/ops/tasks/:id/requeue",
     async (request): Promise<ApiResponse<TaskEntry>> => {
       const { id } = request.params;
-      const { backoff_seconds = 10 } = request.body as { backoff_seconds?: number };
+      const { backoff_seconds = 10, last_error: callerError } = request.body as {
+        backoff_seconds?: number;
+        last_error?: string;
+      };
 
       const db = getDb();
       const now = new Date();
@@ -510,6 +573,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
       const attempts = ((currentTask.attempts as number) || 0) + 1;
       const max_attempts = (currentTask.max_attempts as number) || 3;
+      const errorMsg = callerError || `requeued (${attempts}/${max_attempts})`;
 
       // Hard-stop: if reached max_attempts, set blocked instead of ready
       if (attempts >= max_attempts) {
@@ -519,7 +583,8 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
             status: "blocked",
             attempts,
             finished_at: now.toISOString(),
-            last_error: `max_attempts_reached (${attempts}/${max_attempts})`,
+            last_error: `max_attempts_reached (${attempts}/${max_attempts}): ${errorMsg}`,
+            next_run_at: null,
             updated_at: now.toISOString(),
           })
           .eq("id", id)
@@ -533,7 +598,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         logDecision({
           source: "system",
           decision_key: "task_blocked_max_attempts",
-          decision_value: { task_id: id, attempts, max_attempts },
+          decision_value: { task_id: id, attempts, max_attempts, last_error: errorMsg },
         });
 
         return { ok: true, data: blockedData as TaskEntry };
@@ -546,7 +611,10 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
           status: "ready",
           attempts,
           next_run_at: nextRun.toISOString(),
-          last_error: `timeout_requeued (${attempts}/${max_attempts})`,
+          last_error: errorMsg,
+          claimed_by: null,
+          claimed_at: null,
+          worker_id: null,
           updated_at: now.toISOString(),
         })
         .eq("id", id)
