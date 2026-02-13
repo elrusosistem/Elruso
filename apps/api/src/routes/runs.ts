@@ -178,7 +178,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
       file_changes?: Array<{ path: string; change_type: string; diffstat?: string }>;
     };
 
-    const validStatuses = ["running", "done", "failed", "blocked"];
+    const validStatuses = ["running", "done", "failed", "blocked", "deduped"];
     if (!validStatuses.includes(status)) {
       return { ok: false, error: `Status invalido. Opciones: ${validStatuses.join(", ")}` };
     }

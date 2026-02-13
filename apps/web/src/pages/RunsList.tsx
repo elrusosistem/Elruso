@@ -7,6 +7,7 @@ const STATUS_COLORS: Record<string, string> = {
   done: "bg-green-500",
   failed: "bg-red-500",
   blocked: "bg-yellow-500",
+  deduped: "bg-gray-600",
 };
 
 export function RunsList() {

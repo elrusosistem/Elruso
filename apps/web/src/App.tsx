@@ -9,6 +9,7 @@ import { TasksList } from "./pages/TasksList";
 import { SetupWizard } from "./pages/SetupWizard";
 import { RunnersList } from "./pages/RunnersList";
 import { DecisionsList } from "./pages/DecisionsList";
+import { Dashboard } from "./pages/Dashboard";
 
 function useHash() {
   const [hash, setHash] = useState(window.location.hash);
@@ -88,9 +89,9 @@ function PauseControl() {
 }
 
 const NAV_ITEMS = [
+  { path: "#/", label: "Dashboard", match: "#/" },
   { path: "#/runs", label: "Runs", match: "#/runs" },
   { path: "#/tasks", label: "Tasks", match: "#/tasks" },
-  { path: "#/runners", label: "Runners", match: "#/runners" },
   { path: "#/directives", label: "Directivas", match: "#/directives" },
   { path: "#/decisions", label: "Decisions", match: "#/decisions" },
   { path: "#/requests", label: "Requests", match: "#/requests" },
@@ -117,15 +118,17 @@ export function App() {
     page = <RunnersList />;
   } else if (hash === "#/setup") {
     page = <SetupWizard />;
-  } else {
+  } else if (hash === "#/runs") {
     page = <RunsList />;
+  } else {
+    page = <Dashboard />;
   }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
       <nav className="border-b border-gray-800 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-6">
-          <a href="#/runs" className="text-lg font-bold tracking-tight hover:text-gray-300">
+          <a href="#/" className="text-lg font-bold tracking-tight hover:text-gray-300">
             Elruso
           </a>
           {NAV_ITEMS.map((item) => (
@@ -133,9 +136,11 @@ export function App() {
               key={item.path}
               href={item.path}
               className={`text-sm hover:text-white transition-colors ${
-                hash.startsWith(item.match) || (hash === "" && item.match === "#/runs")
+                (item.match === "#/" && (hash === "" || hash === "#" || hash === "#/"))
                   ? "text-white"
-                  : "text-gray-500"
+                  : (item.match !== "#/" && hash.startsWith(item.match))
+                    ? "text-white"
+                    : "text-gray-500"
               }`}
             >
               {item.label}

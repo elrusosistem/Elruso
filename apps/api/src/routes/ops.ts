@@ -643,6 +643,10 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       last_run_at: string | null;
       fail_rate_last_20: number | null;
       avg_ready_to_done_seconds_last_20: number | null;
+      last_24h: number;
+      fails_last_24h: number;
+      deduped_last_24h: number;
+      deduped_total: number;
     };
     backlog: {
       oldest_ready_age_seconds: number | null;
@@ -714,7 +718,24 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // 4. Backlog: oldest ready task
+    // 4. Runs last 24h + deduped count
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: runs24h } = await db
+      .from("run_logs")
+      .select("status")
+      .gte("started_at", oneDayAgo);
+
+    const runsLast24h = (runs24h || []).filter((r) => r.status !== "deduped").length;
+    const failsLast24h = (runs24h || []).filter((r) => r.status === "failed").length;
+    const dedupedTotal = (runs24h || []).filter((r) => r.status === "deduped").length;
+
+    // Count all deduped runs (not just 24h)
+    const { count: allDedupedCount } = await db
+      .from("run_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "deduped");
+
+    // 5. Backlog: oldest ready task
     const { data: oldestReady, error: oldestError } = await db
       .from("ops_tasks")
       .select("created_at")
@@ -741,6 +762,10 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
           last_run_at: lastRunAt,
           fail_rate_last_20: failRateLast20,
           avg_ready_to_done_seconds_last_20: avgReadyToDoneLast20,
+          last_24h: runsLast24h,
+          fails_last_24h: failsLast24h,
+          deduped_last_24h: dedupedTotal,
+          deduped_total: allDedupedCount ?? 0,
         },
         backlog: {
           oldest_ready_age_seconds: oldestReadyAge,

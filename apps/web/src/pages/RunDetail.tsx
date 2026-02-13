@@ -7,6 +7,7 @@ const STATUS_COLORS: Record<string, string> = {
   done: "text-green-400",
   failed: "text-red-400",
   blocked: "text-yellow-400",
+  deduped: "text-gray-500",
 };
 
 export function RunDetail({ runId }: { runId: string }) {

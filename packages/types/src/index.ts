@@ -54,7 +54,7 @@ export interface SystemState {
 }
 
 // ─── Run Recorder ────────────────────────────────────────────────────
-export type RunStatus = "running" | "done" | "failed" | "blocked";
+export type RunStatus = "running" | "done" | "failed" | "blocked" | "deduped";
 
 export interface RunLog {
   id: string;
