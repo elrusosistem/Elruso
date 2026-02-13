@@ -359,7 +359,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
-  // POST /ops/tasks/claim — Atomic claim with eligibility check
+  // POST /ops/tasks/claim — Atomic claim with eligibility check (deps + next_run_at)
   app.post<{ Body: { task_id: string; runner_id: string } }>(
     "/ops/tasks/claim",
     async (request, reply): Promise<ApiResponse<TaskEntry>> => {
@@ -372,7 +372,38 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       const db = getDb();
       const now = new Date().toISOString();
 
-      // Atomic update: solo si status='ready' AND (next_run_at is null OR next_run_at <= now)
+      // 1. Verificar deps: obtener task y chequear que depends_on estén DONE
+      const { data: taskData, error: fetchError } = await db
+        .from("ops_tasks")
+        .select("depends_on")
+        .eq("id", task_id)
+        .single();
+
+      if (fetchError || !taskData) {
+        reply.code(404);
+        return { ok: false, error: "task_not_found" };
+      }
+
+      const depends_on = (taskData.depends_on as string[]) || [];
+      if (depends_on.length > 0) {
+        // Verificar que todas las deps estén done
+        const { data: depsData, error: depsError } = await db
+          .from("ops_tasks")
+          .select("id, status")
+          .in("id", depends_on);
+
+        if (depsError) {
+          return { ok: false, error: "error_checking_dependencies" };
+        }
+
+        const notDone = (depsData || []).filter((d) => d.status !== "done");
+        if (notDone.length > 0) {
+          reply.code(409);
+          return { ok: false, error: `dependencies_not_done: ${notDone.map((d) => d.id).join(", ")}` };
+        }
+      }
+
+      // 2. Atomic update: solo si status='ready' AND (next_run_at is null OR next_run_at <= now)
       const { data, error } = await db
         .from("ops_tasks")
         .update({
@@ -398,7 +429,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
-  // POST /ops/tasks/:id/requeue — Requeue stuck task
+  // POST /ops/tasks/:id/requeue — Requeue stuck task (increments attempts)
   app.post<{ Params: { id: string }; Body: { backoff_seconds?: number } }>(
     "/ops/tasks/:id/requeue",
     async (request): Promise<ApiResponse<TaskEntry>> => {
@@ -409,11 +440,51 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       const now = new Date();
       const nextRun = new Date(now.getTime() + backoff_seconds * 1000);
 
+      // Fetch current attempts
+      const { data: currentTask, error: fetchError } = await db
+        .from("ops_tasks")
+        .select("attempts, max_attempts")
+        .eq("id", id)
+        .eq("status", "running")
+        .single();
+
+      if (fetchError || !currentTask) {
+        return { ok: false, error: "task_not_found_or_not_running" };
+      }
+
+      const attempts = ((currentTask.attempts as number) || 0) + 1;
+      const max_attempts = (currentTask.max_attempts as number) || 3;
+
+      // Hard-stop: if reached max_attempts, set blocked instead of ready
+      if (attempts >= max_attempts) {
+        const { data: blockedData, error: blockedError } = await db
+          .from("ops_tasks")
+          .update({
+            status: "blocked",
+            attempts,
+            finished_at: now.toISOString(),
+            last_error: `max_attempts_reached (${attempts}/${max_attempts})`,
+            updated_at: now.toISOString(),
+          })
+          .eq("id", id)
+          .select()
+          .single();
+
+        if (blockedError || !blockedData) {
+          return { ok: false, error: "failed_to_block_task" };
+        }
+
+        return { ok: true, data: blockedData as TaskEntry };
+      }
+
+      // Normal requeue: increment attempts, set next_run_at
       const { data, error } = await db
         .from("ops_tasks")
         .update({
           status: "ready",
+          attempts,
           next_run_at: nextRun.toISOString(),
+          last_error: `timeout_requeued (${attempts}/${max_attempts})`,
           updated_at: now.toISOString(),
         })
         .eq("id", id)
@@ -484,5 +555,129 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     });
 
     return { ok: true, data: enriched };
+  });
+
+  // ─── METRICS ─────────────────────────────────────────────────────────
+
+  interface OpsMetrics {
+    tasks: {
+      ready: number;
+      running: number;
+      blocked: number;
+      failed: number;
+      done: number;
+    };
+    runners: {
+      online: number;
+      total: number;
+    };
+    runs: {
+      last_run_at: string | null;
+      fail_rate_last_20: number | null;
+      avg_ready_to_done_seconds_last_20: number | null;
+    };
+    backlog: {
+      oldest_ready_age_seconds: number | null;
+    };
+  }
+
+  // GET /ops/metrics — Operational metrics
+  app.get("/ops/metrics", async (): Promise<ApiResponse<OpsMetrics>> => {
+    const db = getDb();
+
+    // 1. Task counts by status
+    const { data: tasksData, error: tasksError } = await db.from("ops_tasks").select("status");
+    if (tasksError) return { ok: false, error: tasksError.message };
+
+    const taskCounts = {
+      ready: 0,
+      running: 0,
+      blocked: 0,
+      failed: 0,
+      done: 0,
+    };
+    (tasksData || []).forEach((t) => {
+      const status = t.status as keyof typeof taskCounts;
+      if (status in taskCounts) taskCounts[status]++;
+    });
+
+    // 2. Runners online/total
+    const { data: runnersData, error: runnersError } = await db
+      .from("runner_heartbeats")
+      .select("last_seen_at");
+    if (runnersError) return { ok: false, error: runnersError.message };
+
+    const now = new Date();
+    const onlineRunners = (runnersData || []).filter((r) => {
+      const lastSeen = new Date(r.last_seen_at as string);
+      const elapsed = (now.getTime() - lastSeen.getTime()) / 1000;
+      return elapsed <= 60;
+    }).length;
+    const totalRunners = (runnersData || []).length;
+
+    // 3. Runs metrics (last 20)
+    const { data: runsData, error: runsError } = await db
+      .from("run_logs")
+      .select("started_at, finished_at, status")
+      .order("started_at", { ascending: false })
+      .limit(20);
+
+    let lastRunAt: string | null = null;
+    let failRateLast20: number | null = null;
+    let avgReadyToDoneLast20: number | null = null;
+
+    if (!runsError && runsData && runsData.length > 0) {
+      lastRunAt = runsData[0].started_at as string;
+
+      const failedCount = runsData.filter((r) => r.status === "failed").length;
+      failRateLast20 = failedCount / runsData.length;
+
+      // Avg duration for done runs
+      const doneDurations = runsData
+        .filter((r) => r.status === "done" && r.finished_at)
+        .map((r) => {
+          const start = new Date(r.started_at as string);
+          const end = new Date(r.finished_at as string);
+          return (end.getTime() - start.getTime()) / 1000;
+        });
+
+      if (doneDurations.length > 0) {
+        avgReadyToDoneLast20 = doneDurations.reduce((a, b) => a + b, 0) / doneDurations.length;
+      }
+    }
+
+    // 4. Backlog: oldest ready task
+    const { data: oldestReady, error: oldestError } = await db
+      .from("ops_tasks")
+      .select("created_at")
+      .eq("status", "ready")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .single();
+
+    let oldestReadyAge: number | null = null;
+    if (!oldestError && oldestReady) {
+      const createdAt = new Date(oldestReady.created_at as string);
+      oldestReadyAge = (now.getTime() - createdAt.getTime()) / 1000;
+    }
+
+    return {
+      ok: true,
+      data: {
+        tasks: taskCounts,
+        runners: {
+          online: onlineRunners,
+          total: totalRunners,
+        },
+        runs: {
+          last_run_at: lastRunAt,
+          fail_rate_last_20: failRateLast20,
+          avg_ready_to_done_seconds_last_20: avgReadyToDoneLast20,
+        },
+        backlog: {
+          oldest_ready_age_seconds: oldestReadyAge,
+        },
+      },
+    };
   });
 }

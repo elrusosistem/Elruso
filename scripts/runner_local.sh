@@ -260,8 +260,11 @@ process_task() {
       api_patch "/ops/tasks/${task_id}" "{\"status\":\"ready\",\"attempts\":${attempts},\"next_run_at\":\"${next_run}\",\"last_error\":\"steps failed (${attempts}/${max_attempts})\"}" > /dev/null || true
       log "  task -> retry ${attempts}/${max_attempts} (next_run: +${backoff}s)"
     else
-      api_patch "/ops/tasks/${task_id}" "{\"status\":\"blocked\",\"attempts\":${attempts},\"last_error\":\"max_attempts reached (${attempts}/${max_attempts})\"}" > /dev/null || true
-      log "  task -> blocked (max attempts)"
+      # Hard-stop: blocked + finished_at
+      local finished_at
+      finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      api_patch "/ops/tasks/${task_id}" "{\"status\":\"blocked\",\"attempts\":${attempts},\"finished_at\":\"${finished_at}\",\"last_error\":\"max_attempts_reached (${attempts}/${max_attempts})\"}" > /dev/null || true
+      log "  task -> blocked (max attempts reached, hard-stop)"
     fi
   fi
 
@@ -283,6 +286,7 @@ sweep_stuck_tasks() {
   stuck_tasks=$(echo "$tasks_response" | jq -r --arg threshold "$STUCK_THRESHOLD_SECONDS" '
     .data[] | select(.started_at != null) |
     select((now - (.started_at | fromdateiso8601)) > ($threshold | tonumber)) |
+    select((.attempts // 0) < (.max_attempts // 3)) |
     .id
   ')
 
