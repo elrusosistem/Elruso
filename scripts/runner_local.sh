@@ -139,16 +139,20 @@ process_task() {
   diff_output=$(git -C "$ROOT" diff --name-status HEAD~1 HEAD 2>/dev/null || echo "")
 
   if [ -n "$diff_output" ]; then
-    file_changes_json=$(echo "$diff_output" | while IFS=$'\t' read -r status path rest; do
-      local change_type="modified"
-      case "$status" in
-        A*) change_type="added" ;;
-        D*) change_type="deleted" ;;
-        R*) change_type="renamed"; path="${rest}" ;;
-        M*) change_type="modified" ;;
+    local fc_tmp=""
+    while IFS=$'\t' read -r fc_status fc_path fc_rest; do
+      local fc_type="modified"
+      case "$fc_status" in
+        A*) fc_type="added" ;;
+        D*) fc_type="deleted" ;;
+        R*) fc_type="renamed"; fc_path="${fc_rest}" ;;
+        M*) fc_type="modified" ;;
       esac
-      echo "{\"path\":\"${path}\",\"change_type\":\"${change_type}\"}"
-    done | jq -sc '.')
+      fc_tmp="${fc_tmp}{\"path\":\"${fc_path}\",\"change_type\":\"${fc_type}\"},"
+    done <<< "$diff_output"
+    # Quitar ultima coma y envolver en array
+    fc_tmp="${fc_tmp%,}"
+    file_changes_json="[${fc_tmp}]"
   fi
 
   # Guardar patch redactado en reports/runs/<run_id>/
