@@ -20,6 +20,12 @@ API_BASE_URL="${API_BASE_URL:-http://localhost:3001}"
 LOOP_MODE=false
 POLL_INTERVAL=10
 MAX_BACKOFF=120
+HEARTBEAT_INTERVAL=15
+STUCK_THRESHOLD_SECONDS=900  # 15 min
+RUNNER_ID="${RUNNER_ID:-runner-$(hostname)-$$}"
+
+# Tracking de ultimo heartbeat
+LAST_HEARTBEAT=0
 
 if [ "${1:-}" = "--loop" ]; then
   LOOP_MODE=true
@@ -33,6 +39,21 @@ fi
 
 # ─── Helpers ─────────────────────────────────────────────────────────
 log() { echo "[runner] $(date +%H:%M:%S) $*" >&2; }
+
+send_heartbeat() {
+  local now
+  now=$(date +%s)
+  # Solo enviar si pasaron >= HEARTBEAT_INTERVAL segundos
+  if [ $((now - LAST_HEARTBEAT)) -lt "$HEARTBEAT_INTERVAL" ]; then
+    return 0
+  fi
+
+  local meta
+  meta="{\"hostname\":\"$(hostname)\",\"pid\":$$,\"api\":\"$API_BASE_URL\"}"
+
+  api_post "/ops/runner/heartbeat" "{\"runner_id\":\"${RUNNER_ID}\",\"status\":\"online\",\"meta\":${meta}}" > /dev/null 2>&1 || log "  WARN: heartbeat failed"
+  LAST_HEARTBEAT=$now
+}
 
 api_get() {
   curl -sf "${API_BASE_URL}${1}" 2>/dev/null
@@ -88,23 +109,22 @@ process_task() {
   log "=== Procesando: ${task_id} — ${task_title} ==="
 
   # 1. Atomic claim
-  local worker_id="runner-local-$$"
   local claim_response
-  claim_response=$(api_post "/ops/tasks/claim" "{\"task_id\":\"${task_id}\",\"worker_id\":\"${worker_id}\"}") || claim_response=""
+  claim_response=$(api_post "/ops/tasks/claim" "{\"task_id\":\"${task_id}\",\"runner_id\":\"${RUNNER_ID}\"}") || claim_response=""
 
   if [ -z "$claim_response" ]; then
-    log "  WARN: task ya fue claimed por otro worker, saltando"
+    log "  WARN: task no elegible o ya claimed, saltando"
     return 2
   fi
 
   local claim_ok
   claim_ok=$(echo "$claim_response" | jq -r '.ok // false')
   if [ "$claim_ok" != "true" ]; then
-    log "  WARN: task ya fue claimed (409), saltando"
+    log "  WARN: task no elegible o ya claimed (409), saltando"
     return 2
   fi
 
-  log "  task claimed (worker: ${worker_id})"
+  log "  task claimed (runner: ${RUNNER_ID})"
 
   # 2. Obtener info git
   local branch commit_hash
@@ -218,19 +238,72 @@ process_task() {
 
   # 6. Marcar task segun resultado
   if [ "$final_status" = "done" ]; then
-    api_patch "/ops/tasks/${task_id}" '{"status":"done"}' > /dev/null || true
+    api_patch "/ops/tasks/${task_id}" "{\"status\":\"done\",\"finished_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > /dev/null || true
     log "  task -> done"
   else
-    api_patch "/ops/tasks/${task_id}" '{"status":"failed"}' > /dev/null || true
-    log "  task -> failed"
+    # Obtener attempts actuales
+    local task_info attempts max_attempts
+    task_info=$(api_get "/ops/tasks?status=running" | jq -r ".data[] | select(.id==\"${task_id}\")") || task_info=""
+    attempts=$(echo "$task_info" | jq -r '.attempts // 0')
+    max_attempts=$(echo "$task_info" | jq -r '.max_attempts // 3')
+    attempts=$((attempts + 1))
+
+    if [ "$attempts" -lt "$max_attempts" ]; then
+      # Retry con backoff exponencial: 10s, 30s, 120s
+      local backoff=10
+      if [ "$attempts" -eq 2 ]; then backoff=30; fi
+      if [ "$attempts" -ge 3 ]; then backoff=120; fi
+
+      local next_run
+      next_run=$(date -u -v+${backoff}S +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "+${backoff} seconds" +%Y-%m-%dT%H:%M:%SZ)
+
+      api_patch "/ops/tasks/${task_id}" "{\"status\":\"ready\",\"attempts\":${attempts},\"next_run_at\":\"${next_run}\",\"last_error\":\"steps failed (${attempts}/${max_attempts})\"}" > /dev/null || true
+      log "  task -> retry ${attempts}/${max_attempts} (next_run: +${backoff}s)"
+    else
+      api_patch "/ops/tasks/${task_id}" "{\"status\":\"blocked\",\"attempts\":${attempts},\"last_error\":\"max_attempts reached (${attempts}/${max_attempts})\"}" > /dev/null || true
+      log "  task -> blocked (max attempts)"
+    fi
   fi
 
   log "=== Fin: ${task_id} ==="
   return 0
 }
 
+# ─── Anti-stuck sweep ────────────────────────────────────────────────
+sweep_stuck_tasks() {
+  log "Sweep: buscando tasks colgadas..."
+  local tasks_response stuck_tasks
+  tasks_response=$(api_get "/ops/tasks?status=running") || tasks_response=""
+
+  if [ -z "$tasks_response" ]; then
+    log "  WARN: no se pudo consultar running tasks"
+    return 1
+  fi
+
+  stuck_tasks=$(echo "$tasks_response" | jq -r --arg threshold "$STUCK_THRESHOLD_SECONDS" '
+    .data[] | select(.started_at != null) |
+    select((now - (.started_at | fromdateiso8601)) > ($threshold | tonumber)) |
+    .id
+  ')
+
+  if [ -z "$stuck_tasks" ]; then
+    log "  Sweep: no hay tasks colgadas"
+    return 0
+  fi
+
+  while read -r stuck_id; do
+    if [ -n "$stuck_id" ]; then
+      log "  Sweep: requeue ${stuck_id} (timeout)"
+      api_post "/ops/tasks/${stuck_id}/requeue" '{"backoff_seconds":30}' > /dev/null || true
+    fi
+  done <<< "$stuck_tasks"
+}
+
 # ─── Main ────────────────────────────────────────────────────────────
 run_once() {
+  # Heartbeat
+  send_heartbeat
+
   # Buscar primera task READY
   local tasks_response
   tasks_response=$(api_get "/ops/tasks?status=ready") || tasks_response=""
@@ -263,8 +336,15 @@ run_once() {
 
 if [ "$LOOP_MODE" = true ]; then
   log "Modo loop. Polling cada ${POLL_INTERVAL}s. Ctrl+C para salir."
+  log "Runner ID: ${RUNNER_ID}"
   current_interval=$POLL_INTERVAL
+  loop_count=0
   while true; do
+    # Sweep cada 10 iteraciones (~100s con POLL_INTERVAL=10)
+    if [ $((loop_count % 10)) -eq 0 ]; then
+      sweep_stuck_tasks
+    fi
+
     if run_once; then
       current_interval=$POLL_INTERVAL  # Reset backoff on success
     else
@@ -276,8 +356,11 @@ if [ "$LOOP_MODE" = true ]; then
         log "Sin tasks. Backoff: ${current_interval}s"
       fi
     fi
+
+    loop_count=$((loop_count + 1))
     sleep "$current_interval"
   done
 else
+  send_heartbeat
   run_once
 fi

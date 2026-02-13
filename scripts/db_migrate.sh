@@ -73,9 +73,10 @@ for migration in "$MIGRATIONS_DIR"/*.sql; do
     exit 1
   fi
 
-  # Verificar si ya fue aplicada (usando variable psql para evitar inyección)
-  ALREADY_APPLIED=$(psql "$DATABASE_URL" -t -A -v "mig_filename=$FILENAME" \
-    -c "SELECT COUNT(*) FROM _migrations WHERE filename = :'mig_filename';")
+  # Verificar si ya fue aplicada (escapando comillas para evitar inyección)
+  SAFE_FILENAME="${FILENAME//\'/\'\'}"
+  ALREADY_APPLIED=$(psql "$DATABASE_URL" -t -A \
+    -c "SELECT COUNT(*) FROM _migrations WHERE filename = '$SAFE_FILENAME';")
 
   if [ "$ALREADY_APPLIED" -gt 0 ]; then
     echo "SKIP: $FILENAME (ya aplicada)"
@@ -86,9 +87,9 @@ for migration in "$MIGRATIONS_DIR"/*.sql; do
   # Ejecutar migración dentro de transacción
   echo "EXEC: $FILENAME"
   if psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -q -f "$migration"; then
-    # Registrar migración aplicada (usando variable psql)
-    psql "$DATABASE_URL" -q -v "mig_filename=$FILENAME" \
-      -c "INSERT INTO _migrations (filename) VALUES (:'mig_filename');"
+    # Registrar migración aplicada (escapando comillas)
+    psql "$DATABASE_URL" -q \
+      -c "INSERT INTO _migrations (filename) VALUES ('$SAFE_FILENAME');"
     echo "  OK"
     APPLIED=$((APPLIED + 1))
   else

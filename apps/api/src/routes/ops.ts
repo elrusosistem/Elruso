@@ -29,6 +29,21 @@ interface TaskEntry {
   directive_id?: string;
   worker_id?: string;
   started_at?: string;
+  attempts?: number;
+  max_attempts?: number;
+  next_run_at?: string;
+  last_error?: string;
+  claimed_by?: string;
+  claimed_at?: string;
+  finished_at?: string;
+}
+
+interface RunnerHeartbeat {
+  id: string;
+  runner_id: string;
+  status: "online" | "offline";
+  last_seen_at: string;
+  meta?: Record<string, unknown>;
 }
 
 export async function opsRoutes(app: FastifyInstance): Promise<void> {
@@ -344,39 +359,130 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
-  // POST /ops/tasks/claim — Atomic claim
-  app.post<{ Body: { task_id: string; worker_id: string } }>(
+  // POST /ops/tasks/claim — Atomic claim with eligibility check
+  app.post<{ Body: { task_id: string; runner_id: string } }>(
     "/ops/tasks/claim",
     async (request, reply): Promise<ApiResponse<TaskEntry>> => {
-      const { task_id, worker_id } = request.body as { task_id: string; worker_id: string };
+      const { task_id, runner_id } = request.body as { task_id: string; runner_id: string };
 
-      if (!task_id || !worker_id) {
-        return { ok: false, error: "task_id y worker_id son requeridos" };
+      if (!task_id || !runner_id) {
+        return { ok: false, error: "task_id y runner_id son requeridos" };
       }
 
       const db = getDb();
       const now = new Date().toISOString();
 
-      // Atomic update: solo si status='ready'
+      // Atomic update: solo si status='ready' AND (next_run_at is null OR next_run_at <= now)
       const { data, error } = await db
         .from("ops_tasks")
         .update({
           status: "running",
-          worker_id,
+          worker_id: runner_id,
+          claimed_by: runner_id,
+          claimed_at: now,
           started_at: now,
           updated_at: now,
         })
         .eq("id", task_id)
         .eq("status", "ready")
+        .or(`next_run_at.is.null,next_run_at.lte.${now}`)
         .select()
         .single();
 
       if (error || !data) {
         reply.code(409);
-        return { ok: false, error: "task_already_claimed" };
+        return { ok: false, error: "task_not_eligible_or_already_claimed" };
       }
 
       return { ok: true, data: data as TaskEntry };
     }
   );
+
+  // POST /ops/tasks/:id/requeue — Requeue stuck task
+  app.post<{ Params: { id: string }; Body: { backoff_seconds?: number } }>(
+    "/ops/tasks/:id/requeue",
+    async (request): Promise<ApiResponse<TaskEntry>> => {
+      const { id } = request.params;
+      const { backoff_seconds = 10 } = request.body as { backoff_seconds?: number };
+
+      const db = getDb();
+      const now = new Date();
+      const nextRun = new Date(now.getTime() + backoff_seconds * 1000);
+
+      const { data, error } = await db
+        .from("ops_tasks")
+        .update({
+          status: "ready",
+          next_run_at: nextRun.toISOString(),
+          updated_at: now.toISOString(),
+        })
+        .eq("id", id)
+        .eq("status", "running")
+        .select()
+        .single();
+
+      if (error || !data) {
+        return { ok: false, error: "task_not_found_or_not_running" };
+      }
+
+      return { ok: true, data: data as TaskEntry };
+    }
+  );
+
+  // ─── RUNNER HEARTBEAT ────────────────────────────────────────────────
+
+  // POST /ops/runner/heartbeat — Upsert heartbeat
+  app.post<{ Body: { runner_id: string; status?: string; meta?: Record<string, unknown> } }>(
+    "/ops/runner/heartbeat",
+    async (request): Promise<ApiResponse<RunnerHeartbeat>> => {
+      const { runner_id, status = "online", meta } = request.body as {
+        runner_id: string;
+        status?: string;
+        meta?: Record<string, unknown>;
+      };
+
+      if (!runner_id) {
+        return { ok: false, error: "runner_id es requerido" };
+      }
+
+      const db = getDb();
+      const entry = {
+        runner_id,
+        status,
+        last_seen_at: new Date().toISOString(),
+        meta: meta || {},
+      };
+
+      const { data, error } = await db
+        .from("runner_heartbeats")
+        .upsert(entry, { onConflict: "runner_id" })
+        .select()
+        .single();
+
+      if (error) return { ok: false, error: error.message };
+      return { ok: true, data: data as RunnerHeartbeat };
+    }
+  );
+
+  // GET /ops/runner/status — Get runner status (considers offline if last_seen > 60s ago)
+  app.get("/ops/runner/status", async (): Promise<ApiResponse<RunnerHeartbeat[]>> => {
+    const db = getDb();
+    const { data, error } = await db
+      .from("runner_heartbeats")
+      .select("*")
+      .order("last_seen_at", { ascending: false });
+
+    if (error) return { ok: false, error: error.message };
+
+    // Compute offline status based on last_seen_at (60s threshold)
+    const now = new Date();
+    const enriched = (data as RunnerHeartbeat[]).map((r) => {
+      const lastSeen = new Date(r.last_seen_at);
+      const elapsed = (now.getTime() - lastSeen.getTime()) / 1000;
+      const computed_status: "online" | "offline" = elapsed > 60 ? "offline" : "online";
+      return { ...r, status: computed_status };
+    });
+
+    return { ok: true, data: enriched };
+  });
 }
