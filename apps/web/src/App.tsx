@@ -117,7 +117,7 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="min-h-screen bg-gray-950 text-white flex flex-col">
       <nav className="border-b border-gray-800 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-6">
           <a href="#/runs" className="text-lg font-bold tracking-tight hover:text-gray-300">
@@ -142,7 +142,11 @@ export function App() {
           <StatusBadge />
         </div>
       </nav>
-      {page}
+      <main className="flex-1">{page}</main>
+      <footer className="border-t border-gray-800 px-6 py-2 text-xs text-gray-600 flex justify-between">
+        <span>Elruso Panel</span>
+        <span>Build: {__BUILD_COMMIT__} | {new Date(__BUILD_TIME__).toLocaleString("es-AR")}</span>
+      </footer>
     </div>
   );
 }
