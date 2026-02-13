@@ -667,6 +667,14 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         .single();
 
       if (error) return { ok: false, error: error.message };
+
+      logDecision({
+        source: "runner",
+        decision_key: "runner_heartbeat",
+        decision_value: { runner_id, hostname: (meta as Record<string, unknown>)?.hostname ?? null },
+        context: meta ? { meta } : null,
+      });
+
       return { ok: true, data: data as RunnerHeartbeat };
     }
   );

@@ -45,6 +45,37 @@ function StatusBadge() {
   );
 }
 
+function RunnerBadge() {
+  const [online, setOnline] = useState<number>(0);
+  const [total, setTotal] = useState<number>(0);
+
+  useEffect(() => {
+    const fetch = () => {
+      apiFetch("/api/ops/runner/status")
+        .then((r) => r.json())
+        .then((data: ApiResponse<{ runner_id: string; status: string }[]>) => {
+          if (data.ok && data.data) {
+            setTotal(data.data.length);
+            setOnline(data.data.filter((r) => r.status === "online").length);
+          }
+        })
+        .catch(() => {});
+    };
+    fetch();
+    const interval = setInterval(fetch, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (total === 0) return null;
+
+  return (
+    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-800 text-xs">
+      <span className={`w-2 h-2 rounded-full ${online > 0 ? "bg-green-500" : "bg-red-500"}`} />
+      Runner: {online > 0 ? `${online} ONLINE` : "OFFLINE"}
+    </div>
+  );
+}
+
 function PauseControl() {
   const [paused, setPaused] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
@@ -148,6 +179,7 @@ export function App() {
           ))}
         </div>
         <div className="flex items-center gap-3">
+          <RunnerBadge />
           <PauseControl />
           <StatusBadge />
         </div>
