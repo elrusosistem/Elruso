@@ -47,24 +47,23 @@ done
 MODE="dry-run"
 if $APPLY; then MODE="apply"; fi
 
-auth_header() {
-  if [ -n "$ADMIN_TOKEN" ]; then
-    echo "-H" "Authorization: Bearer ${ADMIN_TOKEN}"
-  fi
-}
+AUTH_ARGS=()
+if [ -n "$ADMIN_TOKEN" ]; then
+  AUTH_ARGS=(-H "Authorization: Bearer ${ADMIN_TOKEN}")
+fi
 
 api_get() {
-  curl -sf $(auth_header) "${API_BASE_URL}${1}" 2>/dev/null
+  curl -sf "${AUTH_ARGS[@]}" "${API_BASE_URL}${1}" 2>/dev/null
 }
 
 api_patch() {
-  curl -sf -X PATCH $(auth_header) "${API_BASE_URL}${1}" \
+  curl -sf -X PATCH "${AUTH_ARGS[@]}" "${API_BASE_URL}${1}" \
     -H "Content-Type: application/json" \
     -d "${2}" 2>/dev/null
 }
 
 api_post() {
-  curl -sf -X POST $(auth_header) "${API_BASE_URL}${1}" \
+  curl -sf -X POST "${AUTH_ARGS[@]}" "${API_BASE_URL}${1}" \
     -H "Content-Type: application/json" \
     -d "${2}" 2>/dev/null
 }
