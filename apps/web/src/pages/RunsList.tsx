@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse, RunLog } from "@elruso/types";
+import { apiFetch } from "../api";
 
 const STATUS_COLORS: Record<string, string> = {
   running: "bg-blue-500",
@@ -14,7 +15,7 @@ export function RunsList() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/runs")
+    apiFetch("/api/runs")
       .then((r) => r.json())
       .then((data: ApiResponse<RunLog[]>) => {
         if (data.ok && data.data) {

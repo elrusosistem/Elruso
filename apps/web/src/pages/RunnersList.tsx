@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
+import { apiFetch } from "../api";
 
 interface RunnerHeartbeat {
   id: string;
@@ -15,7 +16,7 @@ export function RunnersList() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchRunners = () => {
-    fetch("/api/ops/runner/status")
+    apiFetch("/api/ops/runner/status")
       .then((r) => r.json())
       .then((data: ApiResponse<RunnerHeartbeat[]>) => {
         if (data.ok && data.data) {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
 import { DecisionsList } from "./DecisionsList";
+import { apiFetch } from "../api";
 
 interface Risk {
   id: string;
@@ -71,7 +72,7 @@ export function DirectivesList() {
   const [gptMessage, setGptMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   const fetchDirectives = () => {
-    fetch("/api/ops/directives")
+    apiFetch("/api/ops/directives")
       .then((r) => r.json())
       .then((data: ApiResponse<Directive[]>) => {
         if (data.ok && data.data) setDirectives(data.data);
@@ -86,7 +87,7 @@ export function DirectivesList() {
   const runGpt = async () => {
     // Check if system is paused
     try {
-      const sysRes = await fetch("/api/ops/system/status");
+      const sysRes = await apiFetch("/api/ops/system/status");
       const sysData: ApiResponse<{ paused: boolean }> = await sysRes.json();
       if (sysData.ok && sysData.data?.paused) {
         const ok = confirm("El sistema esta pausado. ¿Generar directivas de todas formas?");
@@ -99,7 +100,7 @@ export function DirectivesList() {
     setGptRunning(true);
     setGptMessage(null);
     try {
-      const res = await fetch("/api/ops/gpt/run", {
+      const res = await apiFetch("/api/ops/gpt/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -124,7 +125,7 @@ export function DirectivesList() {
   };
 
   const updateStatus = async (id: string, status: string, rejection_reason?: string) => {
-    await fetch(`/api/ops/directives/${id}`, {
+    await apiFetch(`/api/ops/directives/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status, rejection_reason }),
@@ -133,7 +134,7 @@ export function DirectivesList() {
   };
 
   const applyDirective = async (id: string) => {
-    const response = await fetch(`/api/ops/directives/${id}/apply`, { method: "POST" });
+    const response = await apiFetch(`/api/ops/directives/${id}/apply`, { method: "POST" });
     const data = await response.json();
     if (data.ok) {
       const msg = data.data.idempotent

@@ -5,10 +5,17 @@ import { runsRoutes } from "./routes/runs.js";
 import { opsRoutes } from "./routes/ops.js";
 import { gptRoutes } from "./routes/gpt.js";
 import { decisionsRoutes } from "./routes/decisions.js";
+import { requireAdmin } from "./auth.js";
 
 const app = Fastify({ logger: true });
 
 await app.register(cors, { origin: true });
+
+// ─── Auth: proteger todas las rutas mutantes (POST/PATCH/PUT/DELETE) ─────
+app.addHook("onRequest", async (request, reply) => {
+  if (request.method === "GET" || request.method === "OPTIONS" || request.method === "HEAD") return;
+  await requireAdmin(request, reply);
+});
 
 app.get("/health", async (): Promise<ApiResponse<{ status: string }>> => {
   return { ok: true, data: { status: "healthy" } };

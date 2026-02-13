@@ -17,6 +17,7 @@ ROOT="$(dirname "$SCRIPT_DIR")"
 
 # ─── Config ──────────────────────────────────────────────────────────
 API_BASE_URL="${API_BASE_URL:-http://localhost:3001}"
+ADMIN_TOKEN="${ADMIN_TOKEN:-}"
 LOOP_MODE=false
 POLL_INTERVAL=10
 MAX_BACKOFF=120
@@ -55,18 +56,24 @@ send_heartbeat() {
   LAST_HEARTBEAT=$now
 }
 
+auth_header() {
+  if [ -n "$ADMIN_TOKEN" ]; then
+    echo "-H" "Authorization: Bearer ${ADMIN_TOKEN}"
+  fi
+}
+
 api_get() {
-  curl -sf "${API_BASE_URL}${1}" 2>/dev/null || true
+  curl -sf $(auth_header) "${API_BASE_URL}${1}" 2>/dev/null || true
 }
 
 api_post() {
-  curl -sf -X POST "${API_BASE_URL}${1}" \
+  curl -sf -X POST $(auth_header) "${API_BASE_URL}${1}" \
     -H "Content-Type: application/json" \
     -d "${2}" 2>/dev/null || true
 }
 
 api_patch() {
-  curl -sf -X PATCH "${API_BASE_URL}${1}" \
+  curl -sf -X PATCH $(auth_header) "${API_BASE_URL}${1}" \
     -H "Content-Type: application/json" \
     -d "${2}" 2>/dev/null || true
 }

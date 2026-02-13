@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse, OpsRequest, RequestStatus } from "@elruso/types";
+import { apiFetch } from "../api";
 
 const STATUS_COLORS: Record<string, string> = {
   WAITING: "bg-yellow-500",
@@ -25,14 +26,14 @@ export function RequestsList() {
   const [message, setMessage] = useState<string | null>(null);
 
   const fetchRequests = () => {
-    fetch("/api/ops/requests")
+    apiFetch("/api/ops/requests")
       .then((r) => r.json())
       .then((data: ApiResponse<OpsRequest[]>) => {
         if (data.ok && data.data) {
           setRequests(data.data);
           // Fetch value status for each request
           data.data.forEach((req) => {
-            fetch(`/api/ops/requests/${req.id}/value/status`)
+            apiFetch(`/api/ops/requests/${req.id}/value/status`)
               .then((r) => r.json())
               .then((statusData: ApiResponse<{ has_value: boolean }>) => {
                 if (statusData.ok && statusData.data) {
@@ -52,7 +53,7 @@ export function RequestsList() {
   useEffect(() => { fetchRequests(); }, []);
 
   const updateStatus = async (id: string, status: RequestStatus) => {
-    const res = await fetch(`/api/ops/requests/${id}`, {
+    const res = await apiFetch(`/api/ops/requests/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
@@ -84,7 +85,7 @@ export function RequestsList() {
     setSaving(req.id);
     setMessage(null);
     try {
-      const res = await fetch(`/api/ops/requests/${req.id}/value`, {
+      const res = await apiFetch(`/api/ops/requests/${req.id}/value`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ values: cleanValues }),

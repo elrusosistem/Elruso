@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
+import { apiFetch } from "../api";
 
 interface TaskEntry {
   id: string;
@@ -30,7 +31,7 @@ export function TasksList() {
 
   const fetchTasks = (status?: string) => {
     const qs = status ? `?status=${status}` : "";
-    fetch(`/api/ops/tasks${qs}`)
+    apiFetch(`/api/ops/tasks${qs}`)
       .then((r) => r.json())
       .then((data: ApiResponse<TaskEntry[]>) => {
         if (data.ok && data.data) setTasks(data.data);
@@ -43,7 +44,7 @@ export function TasksList() {
   useEffect(() => { fetchTasks(statusFilter || undefined); }, [statusFilter]);
 
   const updateStatus = async (id: string, status: string) => {
-    await fetch(`/api/ops/tasks/${id}`, {
+    await apiFetch(`/api/ops/tasks/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),

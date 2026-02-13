@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse, OpsRequest } from "@elruso/types";
+import { apiFetch } from "../api";
 
 interface SectionConfig {
   title: string;
@@ -68,13 +69,13 @@ export function SetupWizard() {
   const [editing, setEditing] = useState<Record<string, boolean>>({});
 
   const fetchAll = () => {
-    fetch("/api/ops/requests")
+    apiFetch("/api/ops/requests")
       .then((r) => r.json())
       .then((data: ApiResponse<OpsRequest[]>) => {
         if (data.ok && data.data) {
           setRequests(data.data);
           data.data.forEach((req) => {
-            fetch(`/api/ops/requests/${req.id}/value/status`)
+            apiFetch(`/api/ops/requests/${req.id}/value/status`)
               .then((r) => r.json())
               .then((s: ApiResponse<{ has_value: boolean }>) => {
                 if (s.ok && s.data) {
@@ -113,7 +114,7 @@ export function SetupWizard() {
     setSaving(reqId);
     setMessage(null);
     try {
-      const res = await fetch(`/api/ops/requests/${reqId}/value`, {
+      const res = await apiFetch(`/api/ops/requests/${reqId}/value`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ values: clean }),
@@ -137,7 +138,7 @@ export function SetupWizard() {
     setValidating(reqId);
     setValidations((prev) => ({ ...prev, [reqId]: null }));
     try {
-      const res = await fetch(`/api/ops/requests/${reqId}/validate`, { method: "POST" });
+      const res = await apiFetch(`/api/ops/requests/${reqId}/validate`, { method: "POST" });
       const data: ApiResponse<{ ok: boolean; message: string }> = await res.json();
       if (data.ok && data.data) {
         setValidations((prev) => ({ ...prev, [reqId]: data.data! }));
@@ -152,7 +153,7 @@ export function SetupWizard() {
   const runAction = async (action: string) => {
     setActionLog({ action, running: true, result: null });
     try {
-      const res = await fetch(`/api/ops/actions/${action}`, { method: "POST" });
+      const res = await apiFetch(`/api/ops/actions/${action}`, { method: "POST" });
       const data: ApiResponse<{ ok: boolean; output: string; exitCode: number }> = await res.json();
       if (data.ok && data.data) {
         setActionLog({ action, running: false, result: data.data });

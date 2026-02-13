@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse, RunDetail as RunDetailType, FileChange } from "@elruso/types";
+import { apiFetch } from "../api";
 
 const STATUS_COLORS: Record<string, string> = {
   running: "text-blue-400",
@@ -16,7 +17,7 @@ export function RunDetail({ runId }: { runId: string }) {
   const [showPatch, setShowPatch] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/runs/${runId}`)
+    apiFetch(`/api/runs/${runId}`)
       .then((r) => r.json())
       .then((data: ApiResponse<RunDetailType>) => {
         if (data.ok && data.data) {
@@ -180,7 +181,7 @@ export function RunDetail({ runId }: { runId: string }) {
               if (showPatch) {
                 setShowPatch(false);
               } else {
-                fetch(`/api/runs/${runId}/artifacts/patch`)
+                apiFetch(`/api/runs/${runId}/artifacts/patch`)
                   .then((r) => r.json())
                   .then((data: ApiResponse<{ patch: string }>) => {
                     if (data.ok && data.data) {

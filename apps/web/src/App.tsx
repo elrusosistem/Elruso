@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
+import { apiFetch } from "./api";
 import { RunsList } from "./pages/RunsList";
 import { RunDetail } from "./pages/RunDetail";
 import { RequestsList } from "./pages/RequestsList";
@@ -23,7 +24,7 @@ function StatusBadge() {
   const [status, setStatus] = useState<string>("...");
 
   useEffect(() => {
-    fetch("/api/health")
+    apiFetch("/api/health")
       .then((r) => r.json())
       .then((data: ApiResponse<{ status: string }>) => {
         setStatus(data.data?.status ?? "unknown");
@@ -48,7 +49,7 @@ function PauseControl() {
   const [loading, setLoading] = useState<boolean>(false);
 
   const fetchStatus = () => {
-    fetch("/api/ops/system/status")
+    apiFetch("/api/ops/system/status")
       .then((r) => r.json())
       .then((data: ApiResponse<{ paused: boolean }>) => {
         if (data.ok && data.data) setPaused(data.data.paused);
@@ -65,7 +66,7 @@ function PauseControl() {
   const toggle = async () => {
     setLoading(true);
     const endpoint = paused ? "/api/ops/system/resume" : "/api/ops/system/pause";
-    await fetch(endpoint, { method: "POST" });
+    await apiFetch(endpoint, { method: "POST" });
     fetchStatus();
     setLoading(false);
   };

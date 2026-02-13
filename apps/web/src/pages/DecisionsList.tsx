@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse, DecisionLog } from "@elruso/types";
+import { apiFetch } from "../api";
 
 interface Props {
   filterRunId?: string;
@@ -46,7 +47,7 @@ export function DecisionsList({ filterRunId, filterDirectiveId }: Props) {
     if (directiveIdFilter) params.set("directive_id", directiveIdFilter);
     params.set("limit", "100");
 
-    fetch(`/api/ops/decisions?${params}`)
+    apiFetch(`/api/ops/decisions?${params}`)
       .then((r) => r.json())
       .then((data: ApiResponse<DecisionLog[]>) => {
         if (data.ok && data.data) setDecisions(data.data);
