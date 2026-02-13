@@ -275,31 +275,42 @@ process_task() {
 # ─── Anti-stuck sweep ────────────────────────────────────────────────
 sweep_stuck_tasks() {
   log "Sweep: buscando tasks colgadas..."
-  local tasks_response stuck_tasks
-  tasks_response=$(api_get "/ops/tasks?status=running") || tasks_response=""
+
+  local tasks_response=""
+  local stuck_tasks=""
+
+  tasks_response="$(api_get "/ops/tasks?status=running" 2>/dev/null || true)"
 
   if [ -z "$tasks_response" ]; then
     log "  WARN: no se pudo consultar running tasks"
-    return 1
+    return 0
   fi
 
-  stuck_tasks=$(echo "$tasks_response" | jq -r --arg threshold "$STUCK_THRESHOLD_SECONDS" '
-    .data[] | select(.started_at != null) |
-    select((now - (.started_at | fromdateiso8601)) > ($threshold | tonumber)) |
-    select((.attempts // 0) < (.max_attempts // 3)) |
-    .id
-  ')
+  stuck_tasks="$(
+    echo "$tasks_response" | jq -r --arg threshold "$STUCK_THRESHOLD_SECONDS" '
+      .data[]
+      | select(.started_at != null)
+      | .started_at_norm = (
+          .started_at
+          | sub("\\+00:00$";"Z")
+          | sub("\\.[0-9]+\\+00:00$";"Z")
+          | sub("\\.[0-9]+Z$";"Z")
+        )
+      | select((now - (.started_at_norm | fromdateiso8601)) > ($threshold | tonumber))
+      | select((.attempts // 0) < (.max_attempts // 3))
+      | .id
+    ' 2>/dev/null || true
+  )"
 
   if [ -z "$stuck_tasks" ]; then
     log "  Sweep: no hay tasks colgadas"
     return 0
   fi
 
-  while read -r stuck_id; do
-    if [ -n "$stuck_id" ]; then
-      log "  Sweep: requeue ${stuck_id} (timeout)"
-      api_post "/ops/tasks/${stuck_id}/requeue" '{"backoff_seconds":30}' > /dev/null || true
-    fi
+  while IFS= read -r stuck_id; do
+    [ -z "$stuck_id" ] && continue
+    log "  Sweep: requeue ${stuck_id} (timeout)"
+    api_post "/ops/tasks/${stuck_id}/requeue" '{"backoff_seconds":30}' > /dev/null 2>&1 || true
   done <<< "$stuck_tasks"
 }
 
