@@ -3,6 +3,7 @@ import type { ApiResponse } from "@elruso/types";
 import { apiFetch } from "../api";
 import { useUiMode } from "../uiMode";
 import { OPERATOR_STAT_LABELS, humanizeRunnerName, humanizeRunnerStatus } from "../humanize";
+import { Tooltip } from "../components/Tooltip";
 
 interface TaskEntry {
   id: string;
@@ -10,6 +11,13 @@ interface TaskEntry {
   title: string;
   status: string;
   created_at?: string;
+}
+
+interface ChecklistState {
+  hasPlan: boolean;
+  hasApproved: boolean;
+  hasDoneTask: boolean;
+  hasSuccessRun: boolean;
 }
 
 interface Metrics {
@@ -56,6 +64,7 @@ export function Dashboard() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [runners, setRunners] = useState<Runner[]>([]);
   const [nextTasks, setNextTasks] = useState<TaskEntry[]>([]);
+  const [checklist, setChecklist] = useState<ChecklistState>({ hasPlan: false, hasApproved: false, hasDoneTask: false, hasSuccessRun: false });
   const [loading, setLoading] = useState(true);
   const [mode] = useUiMode();
   const isOp = mode === "operator";
@@ -75,10 +84,12 @@ export function Dashboard() {
       promises.push(
         apiFetch("/api/ops/tasks?status=ready").then((r) => r.json()),
         apiFetch("/api/ops/system/status").then((r) => r.json()),
+        apiFetch("/api/ops/directives").then((r) => r.json()),
+        apiFetch("/api/runs").then((r) => r.json()),
       );
     }
     Promise.all(promises)
-      .then(([mData, rData, tData, sData]: unknown[]) => {
+      .then(([mData, rData, tData, sData, dData, runsData]: unknown[]) => {
         const m = mData as ApiResponse<Metrics>;
         const r = rData as ApiResponse<Runner[]>;
         if (m.ok && m.data) setMetrics(m.data);
@@ -93,6 +104,18 @@ export function Dashboard() {
         if (sData) {
           const s = sData as ApiResponse<{ paused: boolean }>;
           if (s.ok && s.data) setPaused(s.data.paused);
+        }
+        // Checklist detection
+        if (dData && runsData) {
+          const dirs = (dData as ApiResponse<{ status: string }[]>).data ?? [];
+          const runs = (runsData as ApiResponse<{ status: string }[]>).data ?? [];
+          const tasks = m.ok && m.data ? m.data.tasks : { done: 0, ready: 0, running: 0, blocked: 0, failed: 0 };
+          setChecklist({
+            hasPlan: dirs.length > 0,
+            hasApproved: dirs.some((d) => d.status === "APPROVED" || d.status === "APPLIED"),
+            hasDoneTask: tasks.done > 0,
+            hasSuccessRun: runs.some((r) => r.status === "done"),
+          });
         }
       })
       .catch(() => {})
@@ -183,30 +206,34 @@ export function Dashboard() {
           </div>
         )}
 
-        {/* 3 Top action buttons */}
+        {/* 3 Top action buttons with tooltips */}
         <div className="flex flex-wrap gap-3 mb-6">
-          <button
-            onClick={runGpt}
-            disabled={gptRunning}
-            className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-              gptRunning
-                ? "bg-gray-600 cursor-not-allowed text-gray-400"
-                : "bg-indigo-600 hover:bg-indigo-500 text-white"
-            }`}
-          >
-            {gptRunning ? "Generando..." : "Generar plan (GPT)"}
-          </button>
-          <button
-            onClick={togglePause}
-            disabled={pauseLoading}
-            className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-              paused
-                ? "bg-green-700 hover:bg-green-600 text-white"
-                : "bg-yellow-700 hover:bg-yellow-600 text-white"
-            }`}
-          >
-            {pauseLoading ? "..." : paused ? "Reanudar" : "Pausar"}
-          </button>
+          <Tooltip text="La IA analiza el sistema y propone mejoras">
+            <button
+              onClick={runGpt}
+              disabled={gptRunning}
+              className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                gptRunning
+                  ? "bg-gray-600 cursor-not-allowed text-gray-400"
+                  : "bg-indigo-600 hover:bg-indigo-500 text-white"
+              }`}
+            >
+              {gptRunning ? "Generando..." : "Generar plan (GPT)"}
+            </button>
+          </Tooltip>
+          <Tooltip text={paused ? "Reanudar la ejecucion de tareas" : "Detener temporalmente todas las tareas"}>
+            <button
+              onClick={togglePause}
+              disabled={pauseLoading}
+              className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                paused
+                  ? "bg-green-700 hover:bg-green-600 text-white"
+                  : "bg-yellow-700 hover:bg-yellow-600 text-white"
+              }`}
+            >
+              {pauseLoading ? "..." : paused ? "Reanudar" : "Pausar"}
+            </button>
+          </Tooltip>
           <button
             onClick={refresh}
             className="px-5 py-2.5 rounded-lg text-sm font-medium bg-gray-700 hover:bg-gray-600 text-white transition-colors"
@@ -222,16 +249,19 @@ export function Dashboard() {
           </div>
         )}
 
-        {/* 4 key stats */}
+        {/* 4 key stats with tooltips */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
           <StatCard label="Pendientes" value={metrics.tasks.ready} color="text-blue-400" />
-          <StatCard label="En curso" value={metrics.tasks.running} color="text-yellow-400" />
-          <StatCard
-            label="Necesitan configuracion"
-            value={metrics.tasks.blocked}
-            color={metrics.tasks.blocked > 0 ? "text-red-400" : "text-gray-400"}
-            sub={metrics.tasks.blocked > 0 ? undefined : undefined}
-          />
+          <Tooltip text="Tareas que el sistema esta ejecutando ahora">
+            <div className="w-full"><StatCard label="En curso" value={metrics.tasks.running} color="text-yellow-400" /></div>
+          </Tooltip>
+          <Tooltip text="Falta una clave o dato para continuar">
+            <div className="w-full"><StatCard
+              label="Necesitan configuracion"
+              value={metrics.tasks.blocked}
+              color={metrics.tasks.blocked > 0 ? "text-red-400" : "text-gray-400"}
+            /></div>
+          </Tooltip>
           <StatCard
             label="Agente"
             value={onlineRunners.length > 0 ? "Activo" : "Apagado"}
@@ -250,6 +280,31 @@ export function Dashboard() {
             </a>
           </div>
         )}
+
+        {/* Checklist: Como empezar */}
+        <div className="mb-8 bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-gray-300 mb-3">Como empezar</h3>
+          <div className="space-y-2">
+            {[
+              { done: checklist.hasPlan, label: "Generar plan", sub: "Crear una propuesta con el boton de arriba" },
+              { done: checklist.hasApproved, label: "Aprobar plan", sub: "Revisar y aprobar en Planes" },
+              { done: checklist.hasDoneTask, label: "Esperar ejecucion", sub: "El sistema trabaja solo" },
+              { done: checklist.hasSuccessRun, label: "Revisar resultados", sub: "Ver que cambio en Ejecuciones" },
+            ].map((step, i) => (
+              <div key={i} className="flex items-start gap-3">
+                <span className={`mt-0.5 w-5 h-5 rounded flex items-center justify-center text-xs flex-shrink-0 ${
+                  step.done ? "bg-green-900 text-green-400" : "bg-gray-700 text-gray-500"
+                }`}>
+                  {step.done ? "\u2713" : (i + 1)}
+                </span>
+                <div>
+                  <span className={`text-sm ${step.done ? "text-green-400 line-through" : "text-gray-200"}`}>{step.label}</span>
+                  {!step.done && <p className="text-xs text-gray-500">{step.sub}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
 
         {/* Lo próximo — top 5 ready tasks */}
         <div className="mb-8">

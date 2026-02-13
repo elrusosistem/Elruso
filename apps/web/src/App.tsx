@@ -12,6 +12,8 @@ import { SetupWizard } from "./pages/SetupWizard";
 import { RunnersList } from "./pages/RunnersList";
 import { DecisionsList } from "./pages/DecisionsList";
 import { Dashboard } from "./pages/Dashboard";
+import { Help } from "./pages/Help";
+import { OperatorOnboardingModal } from "./components/OperatorOnboardingModal";
 
 function useHash() {
   const [hash, setHash] = useState(window.location.hash);
@@ -190,6 +192,8 @@ export function App() {
     page = <TasksList />;
   } else if (hash === "#/runners") {
     page = <RunnersList />;
+  } else if (hash === "#/help") {
+    page = <Help />;
   } else if (hash === "#/setup") {
     page = <SetupWizard />;
   } else if (hash === "#/runs") {
@@ -204,6 +208,7 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
+      {isOp && <OperatorOnboardingModal />}
       <nav className="border-b border-gray-800 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-6">
           <a href="#/" className="text-lg font-bold tracking-tight hover:text-gray-300">
@@ -224,6 +229,16 @@ export function App() {
               {isOp ? (OPERATOR_NAV_LABELS[item.label] ?? item.label) : item.label}
             </a>
           ))}
+          {isOp && (
+            <a
+              href="#/help"
+              className={`text-sm hover:text-white transition-colors ${
+                hash === "#/help" ? "text-white" : "text-gray-500"
+              }`}
+            >
+              Ayuda
+            </a>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <ModeToggle />
