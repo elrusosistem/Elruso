@@ -1,23 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { ApiResponse, OpsRequest } from "@elruso/types";
-import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { tryGetDb } from "../db.js";
+import { getDb } from "../db.js";
 import { saveRequestValues, hasRequestValues, generateEnvRuntime, validateProvider, execScript } from "../vault.js";
-
-// ─── File-backed helpers (fallback sin DB) ──────────────────────────
-const OPS_DIR = resolve(import.meta.dirname, "../../../../ops");
-
-function readJson<T>(filename: string): T {
-  const filepath = resolve(OPS_DIR, filename);
-  const content = readFileSync(filepath, "utf-8");
-  return JSON.parse(content) as T;
-}
-
-function writeJson(filename: string, data: unknown): void {
-  const filepath = resolve(OPS_DIR, filename);
-  writeFileSync(filepath, JSON.stringify(data, null, 2) + "\n", "utf-8");
-}
 
 // ─── Types locales ──────────────────────────────────────────────────
 interface Directive {
@@ -51,17 +35,45 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
   // ─── REQUESTS ────────────────────────────────────────────────────
 
   app.get("/ops/requests", async (): Promise<ApiResponse<OpsRequest[]>> => {
-    const db = tryGetDb();
-    if (db) {
+    const db = getDb();
+    const { data, error } = await db
+      .from("ops_requests")
+      .select("*")
+      .order("id");
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: data as OpsRequest[] };
+  });
+
+  app.post<{ Body: OpsRequest }>(
+    "/ops/requests",
+    async (request): Promise<ApiResponse<OpsRequest>> => {
+      const body = request.body as OpsRequest;
+
+      if (!body.id || !body.service || !body.purpose) {
+        return { ok: false, error: "id, service y purpose son requeridos" };
+      }
+
+      const entry: OpsRequest = {
+        id: body.id,
+        service: body.service,
+        type: body.type || "credentials",
+        scopes: body.scopes || [],
+        purpose: body.purpose,
+        where_to_set: body.where_to_set || "",
+        validation_cmd: body.validation_cmd || "",
+        status: body.status || "WAITING",
+      };
+
+      const db = getDb();
       const { data, error } = await db
         .from("ops_requests")
-        .select("*")
-        .order("id");
+        .upsert(entry, { onConflict: "id" })
+        .select()
+        .single();
       if (error) return { ok: false, error: error.message };
-      return { ok: true, data: data as OpsRequest[] };
+      return { ok: true, data: data as OpsRequest };
     }
-    return { ok: true, data: readJson<OpsRequest[]>("REQUESTS.json") };
-  });
+  );
 
   app.patch<{ Params: { id: string }; Body: { status: string; provided_at?: string } }>(
     "/ops/requests/:id",
@@ -71,40 +83,25 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
       const validStatuses = ["WAITING", "PROVIDED", "REJECTED"];
       if (!validStatuses.includes(status)) {
-        return { ok: false, error: `Status inválido. Opciones: ${validStatuses.join(", ")}` };
+        return { ok: false, error: `Status invalido. Opciones: ${validStatuses.join(", ")}` };
       }
 
-      const db = tryGetDb();
-      if (db) {
-        const updates: Record<string, unknown> = {
-          status,
-          updated_at: new Date().toISOString(),
-        };
-        if (provided_at) updates.provided_at = provided_at;
-        if (status === "PROVIDED" && !provided_at) updates.provided_at = new Date().toISOString();
+      const db = getDb();
+      const updates: Record<string, unknown> = {
+        status,
+        updated_at: new Date().toISOString(),
+      };
+      if (provided_at) updates.provided_at = provided_at;
+      if (status === "PROVIDED" && !provided_at) updates.provided_at = new Date().toISOString();
 
-        const { data, error } = await db
-          .from("ops_requests")
-          .update(updates)
-          .eq("id", id)
-          .select()
-          .single();
-        if (error) return { ok: false, error: error.message };
-        return { ok: true, data: data as OpsRequest };
-      }
-
-      // Fallback file-backed
-      const all = readJson<OpsRequest[]>("REQUESTS.json");
-      const idx = all.findIndex((r) => r.id === id);
-      if (idx === -1) return { ok: false, error: `Request ${id} no encontrado` };
-
-      all[idx].status = status as OpsRequest["status"];
-      if (provided_at) all[idx].provided_at = provided_at;
-      if (status === "PROVIDED" && !all[idx].provided_at) {
-        all[idx].provided_at = new Date().toISOString();
-      }
-      writeJson("REQUESTS.json", all);
-      return { ok: true, data: all[idx] };
+      const { data, error } = await db
+        .from("ops_requests")
+        .update(updates)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) return { ok: false, error: error.message };
+      return { ok: true, data: data as OpsRequest };
     }
   );
 
@@ -123,21 +120,11 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       saveRequestValues(id, values);
 
       // Marcar request como PROVIDED
-      const db = tryGetDb();
-      if (db) {
-        await db
-          .from("ops_requests")
-          .update({ status: "PROVIDED", provided_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-          .eq("id", id);
-      } else {
-        const all = readJson<OpsRequest[]>("REQUESTS.json");
-        const idx = all.findIndex((r) => r.id === id);
-        if (idx !== -1) {
-          all[idx].status = "PROVIDED";
-          all[idx].provided_at = new Date().toISOString();
-          writeJson("REQUESTS.json", all);
-        }
-      }
+      const db = getDb();
+      await db
+        .from("ops_requests")
+        .update({ status: "PROVIDED", provided_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("id", id);
 
       const envPath = generateEnvRuntime();
       return { ok: true, data: { saved: true, env_runtime: envPath } };
@@ -169,7 +156,8 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
   const ACTION_SCRIPTS: Record<string, string> = {
     migrate: "db_migrate.sh",
-    seed: "seed_ops_to_db.sh",
+    "sync-push": "ops_sync_push.sh",
+    "sync-pull": "ops_sync_pull.sh",
     "deploy-render": "deploy_staging_api.sh",
     "deploy-vercel": "deploy_staging_web.sh",
   };
@@ -180,7 +168,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       const { action } = request.params;
       const scriptName = ACTION_SCRIPTS[action];
       if (!scriptName) {
-        return { ok: false, error: `Acción desconocida: ${action}. Válidas: ${Object.keys(ACTION_SCRIPTS).join(", ")}` };
+        return { ok: false, error: `Accion desconocida: ${action}. Validas: ${Object.keys(ACTION_SCRIPTS).join(", ")}` };
       }
       const result = await execScript(scriptName);
       return { ok: true, data: result };
@@ -190,37 +178,58 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
   // ─── DIRECTIVES ──────────────────────────────────────────────────
 
   app.get("/ops/directives", async (): Promise<ApiResponse<Directive[]>> => {
-    const db = tryGetDb();
-    if (db) {
-      const { data, error } = await db
-        .from("ops_directives")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) return { ok: false, error: error.message };
-      return { ok: true, data: data as Directive[] };
-    }
-    return { ok: true, data: readJson<Directive[]>("DIRECTIVES_INBOX.json") };
+    const db = getDb();
+    const { data, error } = await db
+      .from("ops_directives")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: data as Directive[] };
   });
 
   app.get<{ Params: { id: string } }>(
     "/ops/directives/:id",
     async (request): Promise<ApiResponse<Directive>> => {
       const { id } = request.params;
-      const db = tryGetDb();
-      if (db) {
-        const { data, error } = await db
-          .from("ops_directives")
-          .select("*")
-          .eq("id", id)
-          .single();
-        if (error) return { ok: false, error: `Directiva ${id} no encontrada` };
-        return { ok: true, data: data as Directive };
+      const db = getDb();
+      const { data, error } = await db
+        .from("ops_directives")
+        .select("*")
+        .eq("id", id)
+        .single();
+      if (error) return { ok: false, error: `Directiva ${id} no encontrada` };
+      return { ok: true, data: data as Directive };
+    }
+  );
+
+  app.post<{ Body: Directive }>(
+    "/ops/directives",
+    async (request): Promise<ApiResponse<Directive>> => {
+      const body = request.body as Partial<Directive>;
+
+      if (!body.id || !body.title) {
+        return { ok: false, error: "id y title son requeridos" };
       }
 
-      const all = readJson<Directive[]>("DIRECTIVES_INBOX.json");
-      const directive = all.find((d) => d.id === id);
-      if (!directive) return { ok: false, error: `Directiva ${id} no encontrada` };
-      return { ok: true, data: directive };
+      const entry = {
+        id: body.id,
+        source: body.source || "gpt",
+        status: body.status || "PENDING",
+        title: body.title,
+        body: body.body || "",
+        acceptance_criteria: body.acceptance_criteria || [],
+        tasks_to_create: body.tasks_to_create || [],
+        created_at: body.created_at || new Date().toISOString(),
+      };
+
+      const db = getDb();
+      const { data, error } = await db
+        .from("ops_directives")
+        .upsert(entry, { onConflict: "id" })
+        .select()
+        .single();
+      if (error) return { ok: false, error: error.message };
+      return { ok: true, data: data as Directive };
     }
   );
 
@@ -235,94 +244,30 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
       const validStatuses = ["PENDING", "APPLIED", "REJECTED"];
       if (!validStatuses.includes(status)) {
-        return { ok: false, error: `Status inválido. Opciones: ${validStatuses.join(", ")}` };
+        return { ok: false, error: `Status invalido. Opciones: ${validStatuses.join(", ")}` };
       }
 
-      const db = tryGetDb();
-      if (db) {
-        const updates: Record<string, unknown> = {
-          status,
-          updated_at: new Date().toISOString(),
-        };
-        if (status === "APPLIED") {
-          updates.applied_at = new Date().toISOString();
-          updates.applied_by = "human";
-        }
-        if (status === "REJECTED" && rejection_reason) {
-          updates.rejection_reason = rejection_reason;
-        }
-
-        const { data, error } = await db
-          .from("ops_directives")
-          .update(updates)
-          .eq("id", id)
-          .select()
-          .single();
-        if (error) return { ok: false, error: error.message };
-        return { ok: true, data: data as Directive };
-      }
-
-      // Fallback file-backed
-      const all = readJson<Directive[]>("DIRECTIVES_INBOX.json");
-      const idx = all.findIndex((d) => d.id === id);
-      if (idx === -1) return { ok: false, error: `Directiva ${id} no encontrada` };
-
-      all[idx].status = status as Directive["status"];
+      const db = getDb();
+      const updates: Record<string, unknown> = {
+        status,
+        updated_at: new Date().toISOString(),
+      };
       if (status === "APPLIED") {
-        all[idx].applied_at = new Date().toISOString();
-        all[idx].applied_by = "human";
+        updates.applied_at = new Date().toISOString();
+        updates.applied_by = "human";
       }
       if (status === "REJECTED" && rejection_reason) {
-        all[idx].rejection_reason = rejection_reason;
-      }
-      writeJson("DIRECTIVES_INBOX.json", all);
-      return { ok: true, data: all[idx] };
-    }
-  );
-
-  // ─── REQUESTS: crear ─────────────────────────────────────────────
-
-  app.post<{ Body: OpsRequest }>(
-    "/ops/requests",
-    async (request): Promise<ApiResponse<OpsRequest>> => {
-      const body = request.body as OpsRequest;
-
-      if (!body.id || !body.service || !body.purpose) {
-        return { ok: false, error: "id, service y purpose son requeridos" };
+        updates.rejection_reason = rejection_reason;
       }
 
-      const entry: OpsRequest = {
-        id: body.id,
-        service: body.service,
-        type: body.type || "credentials",
-        scopes: body.scopes || [],
-        purpose: body.purpose,
-        where_to_set: body.where_to_set || "",
-        validation_cmd: body.validation_cmd || "",
-        status: "WAITING",
-      };
-
-      const db = tryGetDb();
-      if (db) {
-        const { data, error } = await db
-          .from("ops_requests")
-          .upsert(entry, { onConflict: "id" })
-          .select()
-          .single();
-        if (error) return { ok: false, error: error.message };
-        return { ok: true, data: data as OpsRequest };
-      }
-
-      // Fallback file-backed
-      const all = readJson<OpsRequest[]>("REQUESTS.json");
-      const idx = all.findIndex((r) => r.id === entry.id);
-      if (idx >= 0) {
-        all[idx] = entry;
-      } else {
-        all.push(entry);
-      }
-      writeJson("REQUESTS.json", all);
-      return { ok: true, data: entry };
+      const { data, error } = await db
+        .from("ops_directives")
+        .update(updates)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) return { ok: false, error: error.message };
+      return { ok: true, data: data as Directive };
     }
   );
 
@@ -333,23 +278,46 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     const statusFilter = url.searchParams.get("status");
     const phaseFilter = url.searchParams.get("phase");
 
-    const db = tryGetDb();
-    if (db) {
-      let query = db.from("ops_tasks").select("*").order("id");
-      if (statusFilter) query = query.eq("status", statusFilter);
-      if (phaseFilter) query = query.eq("phase", Number(phaseFilter));
+    const db = getDb();
+    let query = db.from("ops_tasks").select("*").order("id");
+    if (statusFilter) query = query.eq("status", statusFilter);
+    if (phaseFilter) query = query.eq("phase", Number(phaseFilter));
 
-      const { data, error } = await query;
-      if (error) return { ok: false, error: error.message };
-      return { ok: true, data: data as TaskEntry[] };
-    }
-
-    // Fallback file-backed
-    let filtered = readJson<TaskEntry[]>("TASKS.json");
-    if (statusFilter) filtered = filtered.filter((t) => t.status === statusFilter);
-    if (phaseFilter) filtered = filtered.filter((t) => t.phase === Number(phaseFilter));
-    return { ok: true, data: filtered };
+    const { data, error } = await query;
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: data as TaskEntry[] };
   });
+
+  app.post<{ Body: TaskEntry }>(
+    "/ops/tasks",
+    async (request): Promise<ApiResponse<TaskEntry>> => {
+      const body = request.body as Partial<TaskEntry>;
+
+      if (!body.id || !body.title) {
+        return { ok: false, error: "id y title son requeridos" };
+      }
+
+      const entry = {
+        id: body.id,
+        phase: body.phase ?? 0,
+        title: body.title,
+        status: body.status || "ready",
+        branch: body.branch || `task/${body.id}`,
+        depends_on: body.depends_on || [],
+        blocked_by: body.blocked_by || [],
+        directive_id: body.directive_id || null,
+      };
+
+      const db = getDb();
+      const { data, error } = await db
+        .from("ops_tasks")
+        .upsert(entry, { onConflict: "id" })
+        .select()
+        .single();
+      if (error) return { ok: false, error: error.message };
+      return { ok: true, data: data as TaskEntry };
+    }
+  );
 
   app.patch<{ Params: { id: string }; Body: { status: string } }>(
     "/ops/tasks/:id",
@@ -359,29 +327,18 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
       const validStatuses = ["ready", "running", "done", "failed", "blocked"];
       if (!validStatuses.includes(status)) {
-        return { ok: false, error: `Status inválido. Opciones: ${validStatuses.join(", ")}` };
+        return { ok: false, error: `Status invalido. Opciones: ${validStatuses.join(", ")}` };
       }
 
-      const db = tryGetDb();
-      if (db) {
-        const { data, error } = await db
-          .from("ops_tasks")
-          .update({ status, updated_at: new Date().toISOString() })
-          .eq("id", id)
-          .select()
-          .single();
-        if (error) return { ok: false, error: error.message };
-        return { ok: true, data: data as TaskEntry };
-      }
-
-      // Fallback file-backed
-      const all = readJson<TaskEntry[]>("TASKS.json");
-      const idx = all.findIndex((t) => t.id === id);
-      if (idx === -1) return { ok: false, error: `Task ${id} no encontrada` };
-
-      all[idx].status = status;
-      writeJson("TASKS.json", all);
-      return { ok: true, data: all[idx] };
+      const db = getDb();
+      const { data, error } = await db
+        .from("ops_tasks")
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) return { ok: false, error: error.message };
+      return { ok: true, data: data as TaskEntry };
     }
   );
 }

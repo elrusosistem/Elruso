@@ -65,7 +65,7 @@
     "id": "T-017",
     "phase": 1,
     "title": "Ordenar el cerebro: reescribir ops docs, types, eliminar refs stock",
-    "status": "in_progress",
+    "status": "running",
     "branch": "main",
     "depends_on": [
       "T-016"
