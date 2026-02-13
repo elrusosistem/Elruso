@@ -49,3 +49,4 @@ reports/gpt/directives/*.json
 tmp/
 .vercel
 .env*.local
+reports/maintenance/
