@@ -1,0 +1,23 @@
+[Unit]
+Description=Elruso Runner — consume tasks y registra runs via API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__REPO_DIR__
+EnvironmentFile=__REPO_DIR__/ops/.secrets/runner.env
+ExecStart=/usr/bin/env bash __REPO_DIR__/scripts/runner_local.sh --loop
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=elruso-runner
+
+# Recursos
+LimitNOFILE=4096
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
