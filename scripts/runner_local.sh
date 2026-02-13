@@ -133,22 +133,69 @@ process_task() {
   ec=$(run_step "$run_id" "git-head" "git -C ${ROOT} rev-parse --short HEAD")
   [ "$ec" -ne 0 ] && all_ok=false
 
-  # 5. Finalizar RUN
+  # 5. Capturar file_changes via git
+  local file_changes_json="[]"
+  local diff_output
+  diff_output=$(git -C "$ROOT" diff --name-status HEAD~1 HEAD 2>/dev/null || echo "")
+
+  if [ -n "$diff_output" ]; then
+    file_changes_json=$(echo "$diff_output" | while IFS=$'\t' read -r status path rest; do
+      local change_type="modified"
+      case "$status" in
+        A*) change_type="added" ;;
+        D*) change_type="deleted" ;;
+        R*) change_type="renamed"; path="${rest}" ;;
+        M*) change_type="modified" ;;
+      esac
+      echo "{\"path\":\"${path}\",\"change_type\":\"${change_type}\"}"
+    done | jq -sc '.')
+  fi
+
+  # Guardar patch redactado en reports/runs/<run_id>/
+  local patch_dir="${ROOT}/reports/runs/${run_id}"
+  local patch_path=""
+  mkdir -p "$patch_dir"
+  local raw_patch
+  raw_patch=$(git -C "$ROOT" diff HEAD~1 HEAD 2>/dev/null || echo "")
+  if [ -n "$raw_patch" ]; then
+    # Redactar patrones de secretos del patch
+    local redacted_patch
+    redacted_patch=$(echo "$raw_patch" | sed -E \
+      -e 's/sk-[A-Za-z0-9_-]{20,}/sk-***REDACTED***/g' \
+      -e 's/rnd_[A-Za-z0-9_-]{20,}/rnd_***REDACTED***/g' \
+      -e 's/eyJ[A-Za-z0-9_-]{40,}/***JWT_REDACTED***/g' \
+      -e 's/Authorization: Bearer [^ ]*/Authorization: Bearer ***REDACTED***/g' \
+      -e 's/apikey: [^ ]*/apikey: ***REDACTED***/g')
+    echo "$redacted_patch" > "${patch_dir}/patch_redacted.diff"
+    patch_path="reports/runs/${run_id}/patch_redacted.diff"
+    log "  patch guardado: ${patch_path}"
+  fi
+
+  # Guardar diffstat
+  local diffstat
+  diffstat=$(git -C "$ROOT" diff --stat HEAD~1 HEAD 2>/dev/null || echo "sin cambios")
+  echo "$diffstat" > "${patch_dir}/diffstat.txt"
+
+  # 6. Finalizar RUN
   local final_status="done"
   if [ "$all_ok" = false ]; then
     final_status="failed"
   fi
 
-  local summary="Task ${task_id} ejecutada por runner_local. Steps: 3. Status: ${final_status}. Branch: ${branch}. Commit: ${commit_hash}."
+  local file_count
+  file_count=$(echo "$file_changes_json" | jq 'length')
+
+  local summary="Task ${task_id} ejecutada por runner_local. Steps: 3. File changes: ${file_count}. Status: ${final_status}. Branch: ${branch}. Commit: ${commit_hash}."
   local escaped_summary
   escaped_summary=$(echo "$summary" | jq -Rs '.')
 
   api_patch "/runs/${run_id}" "{
     \"status\": \"${final_status}\",
-    \"summary\": ${escaped_summary}
+    \"summary\": ${escaped_summary},
+    \"file_changes\": ${file_changes_json}
   }" > /dev/null || log "  WARN: no se pudo finalizar run"
 
-  log "  run -> ${final_status}"
+  log "  run -> ${final_status} (${file_count} file_changes)"
 
   # 6. Marcar task segun resultado
   if [ "$final_status" = "done" ]; then

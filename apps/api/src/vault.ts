@@ -60,21 +60,15 @@ export function generateEnvRuntime(): string {
 }
 
 // ─── Redact: nunca exponer valores completos ────────────────────────
+// Delegamos a redact.ts centralizado para patrones + vault values
 
-export function redact(value: string): string {
-  if (value.length <= 8) return "***";
-  return `***${value.slice(-4)}`;
-}
+import { redactValue, redact as redactFull } from "./redact.js";
+
+const redact = redactValue;
+export { redact };
 
 export function redactOutput(output: string): string {
-  const values = getAllValues();
-  let redacted = output;
-  for (const val of Object.values(values)) {
-    if (val.length > 6) {
-      redacted = redacted.replaceAll(val, redact(val));
-    }
-  }
-  return redacted;
+  return redactFull(output, getAllValues());
 }
 
 // ─── Validación por provider ────────────────────────────────────────

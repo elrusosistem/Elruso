@@ -34,7 +34,7 @@ El primer producto que construye El Ruso es **su propia instancia**. Despues se 
 3. **REQUESTS.json es el canal** — si falta un token/key/decision, crear entry con status WAITING. No preguntar por chat
 4. **CI verde obligatorio** — build + tests deben pasar antes de merge
 5. **Runs como registro** — cada ejecucion significativa se registra en run_logs (DB) y reports/runs/ (archivos)
-6. **TASKS.json es el backlog** — toda tarea nace ahi, se trackea ahi
+6. **DB es el backlog** — toda tarea se crea via API (POST /ops/tasks). TASKS.json es espejo editable, sincronizar con ops_sync_push.sh
 7. **Idioma**: espanol en toda comunicacion y documentacion
 8. **GPT define, Claude ejecuta, Humano aprueba** — sin excepciones
 
@@ -120,8 +120,10 @@ Panel muestra resultado <--+
 
 - **Pooler**: circuit breaker abierto (problema infra Supabase, no nuestro)
 - **Directa**: solo IPv6, red del operador no soporta
-- **Workaround actual**: REST API para todo (reads y writes via Supabase JS client)
+- **Acceso principal**: REST API para todo (reads y writes via Supabase JS client)
+- **DB = Source of Truth**: sin fallback a archivos. Si DB no esta disponible, la API da error explicito
 - **Migraciones**: via SQL Editor de Supabase (no psql por ahora)
+- **Sync scripts**: usan REST API directamente (curl + jq), no requieren psql
 
 ---
 
@@ -163,17 +165,35 @@ Panel muestra resultado <--+
 
 ---
 
+## Fuente de Verdad
+
+**DB (Supabase) es la unica fuente de verdad** para tasks, requests y directives.
+
+- Los archivos `ops/*.json` son espejos editables (bootstrap/seed)
+- La API (y el panel) siempre leen de DB
+- La sincronizacion es explicita con dry-run + diff
+
+Para sincronizar:
+```
+./scripts/ops_sync_push.sh --dry-run   # ver diff archivos → DB
+./scripts/ops_sync_push.sh             # aplicar cambios a DB
+./scripts/ops_sync_pull.sh --dry-run   # ver diff DB → archivos
+./scripts/ops_sync_pull.sh             # descargar DB a archivos
+```
+
 ## Scripts de Mantenimiento
 
 | Script | Proposito |
 |---|---|
 | `scripts/update_state.sh` | Regenera `ops/STATE.md` con info live (HEAD, requests, tasks) |
-| `scripts/ops_sync.sh [export\|import]` | Sincroniza ops JSON <-> DB. Sin creds, sale ok (file-backed) |
-| `scripts/seed_ops_to_db.sh` | Upsert idempotente ops/*.json -> tablas ops_* |
+| `scripts/ops_sync_push.sh [--dry-run]` | Archivos ops/*.json → DB (upsert via REST API) |
+| `scripts/ops_sync_pull.sh [--dry-run]` | DB → archivos ops/*.json (GET via REST API) |
 | `scripts/db_migrate.sh` | Ejecuta migraciones SQL pendientes |
 | `scripts/run_agent.sh <TASK_ID>` | Ejecuta y registra un run |
-| `scripts/compose_gpt_prompt.sh` | Genera prompt contextual para GPT |
-| `scripts/apply_gpt_directives.sh` | Aplica directivas GPT -> tasks |
+| `scripts/compose_gpt_prompt.sh` | Genera prompt contextual para GPT (lee de API) |
+| `scripts/apply_gpt_directives.sh` | Aplica directivas GPT → tasks (POST a API) |
+
+> **DEPRECATED**: `ops_sync.sh` y `seed_ops_to_db.sh` fueron reemplazados por los scripts de arriba.
 
 ---
 

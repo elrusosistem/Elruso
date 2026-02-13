@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import type { ApiResponse, RunLog, RunDetail, RunStep, FileChange } from "@elruso/types";
-import { getDb, tryGetDb } from "../db.js";
+import { getDb } from "../db.js";
+import { redact } from "../redact.js";
+import { getAllValues } from "../vault.js";
 
 export async function runsRoutes(app: FastifyInstance): Promise<void> {
   // TODO: agregar auth middleware (token) en Fase 6
@@ -78,10 +80,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
       return { ok: false, error: "task_id es requerido" };
     }
 
-    const db = tryGetDb();
-    if (!db) {
-      return { ok: false, error: "DB no disponible. Se requiere SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY" };
-    }
+    const db = getDb();
 
     const { data, error } = await db
       .from("run_logs")
@@ -119,10 +118,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
       return { ok: false, error: "step_name es requerido" };
     }
 
-    const db = tryGetDb();
-    if (!db) {
-      return { ok: false, error: "DB no disponible" };
-    }
+    const db = getDb();
 
     const finished_at = exit_code !== undefined ? new Date().toISOString() : null;
 
@@ -133,7 +129,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
         step_name,
         cmd: cmd ?? null,
         exit_code: exit_code ?? null,
-        output_excerpt: output_excerpt ?? null,
+        output_excerpt: output_excerpt ? redact(output_excerpt, getAllValues()) : null,
         finished_at,
       })
       .select()
@@ -164,13 +160,10 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
       return { ok: false, error: `Status invalido. Opciones: ${validStatuses.join(", ")}` };
     }
 
-    const db = tryGetDb();
-    if (!db) {
-      return { ok: false, error: "DB no disponible" };
-    }
+    const db = getDb();
 
     const updates: Record<string, unknown> = { status };
-    if (summary !== undefined) updates.summary = summary;
+    if (summary !== undefined) updates.summary = redact(summary, getAllValues());
     if (status === "done" || status === "failed") {
       updates.finished_at = new Date().toISOString();
     }

@@ -35,6 +35,17 @@
 - **Decision**: Agregar `*.tsbuildinfo` a .gitignore y eliminar los archivos trackeados.
 - **Razon**: Si tsbuildinfo esta en git pero dist/ no, `tsc -b` en Render lee el tsbuildinfo stale, cree que el proyecto esta "up to date", y nunca genera dist/. Esto causaba `Cannot find module '@elruso/types'` en cada deploy.
 
+## DEC-011: DB como unica fuente de verdad (Source of Truth)
+- **Fecha**: 2026-02-12
+- **Decision**: Supabase DB es la unica fuente de verdad para tasks, requests y directives. Los archivos ops/*.json son espejos editables (bootstrap/seed). La sincronizacion es explicita con `ops_sync_push.sh` (archivos→DB) y `ops_sync_pull.sh` (DB→archivos), ambos con `--dry-run`.
+- **Razon**: Habia drift entre archivos y DB. El runner y panel leen API (DB) mientras compose_gpt_prompt.sh leia archivos directamente. Resultado: cada componente veia datos distintos. Ahora todos leen de DB via API.
+- **Cambios**:
+  - API: `getDb()` en vez de `tryGetDb()`, eliminados todos los fallbacks a archivos
+  - Scripts: compose_gpt_prompt.sh y apply_gpt_directives.sh usan API
+  - Nuevos: ops_sync_push.sh, ops_sync_pull.sh
+  - Deprecados: ops_sync.sh, seed_ops_to_db.sh
+  - POST /ops/tasks y POST /ops/directives agregados a API
+
 ## DEC-010: Vault local para secrets
 - **Fecha**: 2026-02-08
 - **Decision**: Los valores de REQUESTS se guardan en `ops/.secrets/requests_values.json` (gitignored). El panel tiene inputs para proveerlos. vault.ts los lee y genera .env.

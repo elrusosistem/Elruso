@@ -2,11 +2,11 @@
 set -euo pipefail
 
 # ─── apply_gpt_directives.sh ──────────────────────────────────────────
-# Lee directivas de GPT (JSON) y las transforma en:
-# 1. Entradas en /ops/DIRECTIVES_INBOX.json
-# 2. Tasks nuevas en /ops/TASKS.json
+# Lee directivas de GPT (JSON) y las envia a la API:
+# 1. POST /ops/directives — crea directiva en DB
+# 2. POST /ops/tasks — crea tasks asociadas en DB
 #
-# NO ejecuta nada. Solo transforma directivas en tasks.
+# NO ejecuta nada. Solo transforma directivas en tasks via API.
 #
 # Uso: ./scripts/apply_gpt_directives.sh <archivo_directivas.json>
 # Ejemplo: ./scripts/apply_gpt_directives.sh reports/gpt/directives/incoming.json
@@ -33,19 +33,51 @@ fi
 
 # Validar JSON
 if ! jq empty "$INPUT_FILE" 2>/dev/null; then
-  echo "Error: el archivo no es JSON válido."
+  echo "Error: el archivo no es JSON valido."
   exit 1
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$SCRIPT_DIR/.."
-INBOX_FILE="$ROOT/ops/DIRECTIVES_INBOX.json"
-TASKS_FILE="$ROOT/ops/TASKS.json"
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+API_BASE_URL="${API_BASE_URL:-http://localhost:3001}"
+
+# ─── Verificar que API responde ──────────────────────────────────────
+if ! curl -sf "${API_BASE_URL}/health" >/dev/null 2>&1; then
+  echo "ERROR: API no responde en ${API_BASE_URL}"
+  echo "  Iniciar con: pnpm --filter @elruso/api dev"
+  echo "  O configurar API_BASE_URL para apuntar a produccion."
+  exit 1
+fi
+
+# ─── Helper: POST a API ──────────────────────────────────────────────
+post_api() {
+  local endpoint="$1"
+  local body="$2"
+  local response
+  response=$(curl -sf -X POST "${API_BASE_URL}${endpoint}" \
+    -H "Content-Type: application/json" \
+    -d "$body" 2>&1) || {
+    echo "ERROR: POST ${endpoint} fallo: $response"
+    return 1
+  }
+
+  local ok
+  ok=$(echo "$response" | jq -r '.ok')
+  if [ "$ok" != "true" ]; then
+    local err
+    err=$(echo "$response" | jq -r '.error // "desconocido"')
+    echo "ERROR: POST ${endpoint}: $err"
+    return 1
+  fi
+  echo "$response"
+  return 0
+}
 
 # ─── Leer directivas entrantes ────────────────────────────────────────
 DIRECTIVE_COUNT=$(jq 'length' "$INPUT_FILE")
 echo "[apply] Procesando $DIRECTIVE_COUNT directivas de: $INPUT_FILE"
+echo "[apply] API: $API_BASE_URL"
 echo ""
 
 if [ "$DIRECTIVE_COUNT" -eq 0 ]; then
@@ -54,7 +86,12 @@ if [ "$DIRECTIVE_COUNT" -eq 0 ]; then
 fi
 
 # ─── Obtener siguiente ID para tasks ─────────────────────────────────
-LAST_TASK_ID=$(jq -r '.[].id' "$TASKS_FILE" | sort | tail -1 | sed 's/T-//')
+# Leer tasks existentes de API para determinar proximo ID
+EXISTING_TASKS=$(curl -sf "${API_BASE_URL}/ops/tasks" | jq -r '.data[].id' 2>/dev/null | sort || echo "")
+LAST_TASK_ID=$(echo "$EXISTING_TASKS" | grep -E '^T-[0-9]+$' | tail -1 | sed 's/T-//' || echo "0")
+if [ -z "$LAST_TASK_ID" ] || [ "$LAST_TASK_ID" = "0" ]; then
+  LAST_TASK_ID="0"
+fi
 NEXT_TASK_NUM=$((10#$LAST_TASK_ID + 1))
 
 # ─── Procesar cada directiva ─────────────────────────────────────────
@@ -72,17 +109,10 @@ for i in $(seq 0 $((DIRECTIVE_COUNT - 1))); do
     continue
   fi
 
-  # Verificar si ya existe en inbox
-  EXISTS=$(jq --arg id "$DIR_ID" '[.[] | select(.id == $id)] | length' "$INBOX_FILE")
-  if [ "$EXISTS" -gt 0 ]; then
-    echo "SKIP: $DIR_ID ya existe en inbox"
-    continue
-  fi
-
   echo "ADD: $DIR_ID - $DIR_TITLE"
 
-  # Agregar a DIRECTIVES_INBOX.json
-  DIRECTIVE_ENTRY=$(jq -n \
+  # POST directiva a API
+  DIRECTIVE_BODY=$(jq -n \
     --arg id "$DIR_ID" \
     --arg now "$NOW" \
     --arg source "$DIR_SOURCE" \
@@ -98,18 +128,17 @@ for i in $(seq 0 $((DIRECTIVE_COUNT - 1))); do
       title: $title,
       body: $body,
       acceptance_criteria: $criteria,
-      tasks_to_create: $tasks,
-      applied_at: null,
-      applied_by: null,
-      rejection_reason: null
+      tasks_to_create: $tasks
     }')
 
-  # Append a inbox
-  jq --argjson entry "$DIRECTIVE_ENTRY" '. += [$entry]' "$INBOX_FILE" > "${INBOX_FILE}.tmp"
-  mv "${INBOX_FILE}.tmp" "$INBOX_FILE"
-  DIRECTIVES_ADDED=$((DIRECTIVES_ADDED + 1))
+  if post_api "/ops/directives" "$DIRECTIVE_BODY" >/dev/null; then
+    DIRECTIVES_ADDED=$((DIRECTIVES_ADDED + 1))
+  else
+    echo "  WARN: fallo al crear directiva $DIR_ID, continuando..."
+    continue
+  fi
 
-  # Crear tasks asociadas
+  # Crear tasks asociadas via API
   TASK_COUNT=$(jq ".[$i].tasks_to_create // [] | length" "$INPUT_FILE")
   for j in $(seq 0 $((TASK_COUNT - 1))); do
     TASK_TITLE=$(jq -r ".[$i].tasks_to_create[$j].title" "$INPUT_FILE")
@@ -121,7 +150,7 @@ for i in $(seq 0 $((DIRECTIVE_COUNT - 1))); do
 
     echo "  TASK: $TASK_ID - $TASK_TITLE"
 
-    TASK_ENTRY=$(jq -n \
+    TASK_BODY=$(jq -n \
       --arg id "$TASK_ID" \
       --argjson phase "$TASK_PHASE" \
       --arg title "$TASK_TITLE" \
@@ -139,17 +168,17 @@ for i in $(seq 0 $((DIRECTIVE_COUNT - 1))); do
         directive_id: $dir_id
       }')
 
-    jq --argjson entry "$TASK_ENTRY" '. += [$entry]' "$TASKS_FILE" > "${TASKS_FILE}.tmp"
-    mv "${TASKS_FILE}.tmp" "$TASKS_FILE"
-
-    NEXT_TASK_NUM=$((NEXT_TASK_NUM + 1))
-    TASKS_ADDED=$((TASKS_ADDED + 1))
+    if post_api "/ops/tasks" "$TASK_BODY" >/dev/null; then
+      NEXT_TASK_NUM=$((NEXT_TASK_NUM + 1))
+      TASKS_ADDED=$((TASKS_ADDED + 1))
+    else
+      echo "    WARN: fallo al crear task $TASK_ID"
+    fi
   done
 done
 
 echo ""
-echo "[apply] Resultado: $DIRECTIVES_ADDED directivas agregadas, $TASKS_ADDED tasks creadas."
-echo "[apply] Inbox: $INBOX_FILE"
-echo "[apply] Tasks: $TASKS_FILE"
+echo "[apply] Resultado: $DIRECTIVES_ADDED directivas creadas, $TASKS_ADDED tasks creadas."
+echo "[apply] Todo guardado en DB via API."
 echo ""
-echo "Siguiente paso: Claude toma tasks READY de TASKS.json y ejecuta con run_agent.sh"
+echo "Siguiente paso: Claude toma tasks READY y ejecuta con run_agent.sh"

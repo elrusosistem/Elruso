@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { ApiResponse } from "@elruso/types";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { tryGetDb } from "../db.js";
+import { getDb } from "../db.js";
 import { getRequestValues } from "../vault.js";
 import OpenAI from "openai";
 
@@ -15,35 +15,27 @@ function readFileSafe(path: string): string {
 
 // ─── Componer el prompt de contexto para GPT ──────────────────────
 async function composeContext(): Promise<string> {
+  // Docs estaticos: siempre de archivos
   const stack = readFileSafe(resolve(OPS_DIR, "STACK.md"));
   const directives = readFileSafe(resolve(OPS_DIR, "DIRECTIVES.md"));
   const decisions = readFileSafe(resolve(OPS_DIR, "DECISIONS.md"));
 
-  // Tasks y requests desde DB si hay, sino archivo
-  let tasksJson = "[]";
-  let requestsJson = "[]";
-  let inboxJson = "[]";
+  // Datos dinamicos: siempre de DB
+  const db = getDb();
+
+  const { data: tasks } = await db.from("ops_tasks").select("*").order("id");
+  const tasksJson = tasks ? JSON.stringify(tasks, null, 2) : "[]";
+
+  const { data: requests } = await db.from("ops_requests").select("*").order("id");
+  const requestsJson = requests ? JSON.stringify(requests, null, 2) : "[]";
+
+  const { data: inbox } = await db.from("ops_directives").select("*").order("created_at", { ascending: false }).limit(10);
+  const inboxJson = inbox ? JSON.stringify(inbox, null, 2) : "[]";
+
   let lastRunSummary = "(sin runs previos)";
-
-  const db = tryGetDb();
-  if (db) {
-    const { data: tasks } = await db.from("ops_tasks").select("*").order("id");
-    if (tasks) tasksJson = JSON.stringify(tasks, null, 2);
-
-    const { data: requests } = await db.from("ops_requests").select("*").order("id");
-    if (requests) requestsJson = JSON.stringify(requests, null, 2);
-
-    const { data: inbox } = await db.from("ops_directives").select("*").order("created_at", { ascending: false }).limit(10);
-    if (inbox) inboxJson = JSON.stringify(inbox, null, 2);
-
-    const { data: lastRun } = await db.from("run_logs").select("task_id, status, branch, commit_hash, summary, started_at").order("started_at", { ascending: false }).limit(1).single();
-    if (lastRun) {
-      lastRunSummary = `Task: ${lastRun.task_id}, Status: ${lastRun.status}, Branch: ${lastRun.branch}, Commit: ${lastRun.commit_hash}, Summary: ${lastRun.summary}`;
-    }
-  } else {
-    tasksJson = readFileSafe(resolve(OPS_DIR, "TASKS.json"));
-    requestsJson = readFileSafe(resolve(OPS_DIR, "REQUESTS.json"));
-    inboxJson = readFileSafe(resolve(OPS_DIR, "DIRECTIVES_INBOX.json"));
+  const { data: lastRun } = await db.from("run_logs").select("task_id, status, branch, commit_hash, summary, started_at").order("started_at", { ascending: false }).limit(1).single();
+  if (lastRun) {
+    lastRunSummary = `Task: ${lastRun.task_id}, Status: ${lastRun.status}, Branch: ${lastRun.branch}, Commit: ${lastRun.commit_hash}, Summary: ${lastRun.summary}`;
   }
 
   return `# CONTEXTO PARA GPT — El Ruso (Orquestador)
@@ -238,41 +230,39 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // 5. Guardar directivas y crear tasks
-    const db = tryGetDb();
+    const db = getDb();
     let tasksCreated = 0;
 
-    if (db) {
-      for (const dir of directives) {
-        // Guardar directiva
-        await db.from("ops_directives").upsert({
-          id: dir.id,
-          source: "gpt",
-          status: "PENDING",
-          title: dir.title,
-          body: dir.body,
-          acceptance_criteria: dir.acceptance_criteria,
-          tasks_to_create: dir.tasks_to_create,
-          created_at: new Date().toISOString(),
-        }, { onConflict: "id" });
+    for (const dir of directives) {
+      // Guardar directiva
+      await db.from("ops_directives").upsert({
+        id: dir.id,
+        source: "gpt",
+        status: "PENDING",
+        title: dir.title,
+        body: dir.body,
+        acceptance_criteria: dir.acceptance_criteria,
+        tasks_to_create: dir.tasks_to_create,
+        created_at: new Date().toISOString(),
+      }, { onConflict: "id" });
 
-        // Crear tasks asociadas
-        if (dir.tasks_to_create && dir.tasks_to_create.length > 0) {
-          for (const task of dir.tasks_to_create) {
-            // Generar ID para la task
-            const taskId = `T-GPT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      // Crear tasks asociadas
+      if (dir.tasks_to_create && dir.tasks_to_create.length > 0) {
+        for (const task of dir.tasks_to_create) {
+          // Generar ID para la task
+          const taskId = `T-GPT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
 
-            await db.from("ops_tasks").insert({
-              id: taskId,
-              phase: task.phase || 2,
-              title: task.title,
-              status: "ready",
-              branch: `task/${taskId}`,
-              depends_on: task.depends_on || [],
-              blocked_by: task.blocked_by || [],
-              directive_id: dir.id,
-            });
-            tasksCreated++;
-          }
+          await db.from("ops_tasks").insert({
+            id: taskId,
+            phase: task.phase || 2,
+            title: task.title,
+            status: "ready",
+            branch: `task/${taskId}`,
+            depends_on: task.depends_on || [],
+            blocked_by: task.blocked_by || [],
+            directive_id: dir.id,
+          });
+          tasksCreated++;
         }
       }
     }

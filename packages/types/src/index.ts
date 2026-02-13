@@ -85,6 +85,19 @@ export interface RunDetail extends RunLog {
   file_changes: FileChange[];
 }
 
+// ─── Decisions Log ──────────────────────────────────────────────────
+export type DecisionSource = "gpt" | "human" | "system";
+
+export interface DecisionLog {
+  id: string;
+  created_at: string;
+  source: DecisionSource;
+  decision_key: string;
+  decision_value: Record<string, unknown>;
+  context: Record<string, unknown> | null;
+  run_id: string | null;
+}
+
 // ─── API responses ───────────────────────────────────────────────────
 export interface ApiResponse<T = unknown> {
   ok: boolean;
