@@ -2,6 +2,8 @@ import type { FastifyInstance } from "fastify";
 import type { ApiResponse, OpsRequest } from "@elruso/types";
 import { getDb } from "../db.js";
 import { saveRequestValues, hasRequestValues, generateEnvRuntime, validateProvider, execScript } from "../vault.js";
+import { taskHash as computeTaskHash } from "../contracts/directive_v1.js";
+import type { TaskToCreate } from "../contracts/directive_v1.js";
 
 // Helper: escribe una decision en decisions_log (fire-and-forget, no bloquea la respuesta)
 function logDecision(opts: {
@@ -911,14 +913,22 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true, data: { paused: false } };
   });
 
-  // ─── DIRECTIVE APPLICATION (idempotente) ───────────────────────────
+  // ─── DIRECTIVE APPLICATION (idempotente + task_hash + required_requests) ─────
 
   // POST /ops/directives/:id/apply — Aplicar directiva aprobada
   // Idempotente: si ya está APPLIED devuelve OK sin duplicar tasks.
-  // Si payload_hash ya fue aplicado por otra directiva, retorna no-op.
+  // Task-level dedup: cada task tiene task_hash; si ya existe → skip.
+  // Required_requests: si hay requests faltantes → no crear tasks, upsert requests MISSING.
   app.post<{ Params: { id: string } }>(
     "/ops/directives/:id/apply",
-    async (request, reply): Promise<ApiResponse<{ directive_id: string; tasks_created: number; idempotent: boolean }>> => {
+    async (request, reply): Promise<ApiResponse<{
+      directive_id: string;
+      tasks_created: number;
+      tasks_skipped: number;
+      blocked_by_requests: boolean;
+      missing_requests: string[];
+      idempotent: boolean;
+    }>> => {
       const { id } = request.params;
       const db = getDb();
       const now = new Date().toISOString();
@@ -937,7 +947,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
       // 2. Idempotente: ya aplicada → no-op
       if (directive.status === "APPLIED" && directive.applied_at) {
-        return { ok: true, data: { directive_id: id, tasks_created: 0, idempotent: true } };
+        return { ok: true, data: { directive_id: id, tasks_created: 0, tasks_skipped: 0, blocked_by_requests: false, missing_requests: [], idempotent: true } };
       }
 
       // 3. Verificar que esté aprobada
@@ -946,7 +956,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         return { ok: false, error: `directive_not_approved (status: ${directive.status})` };
       }
 
-      // 4. Idempotente por hash: si otro directive con mismo hash ya fue APPLIED → no-op
+      // 4. Idempotente por payload_hash: si otro directive con mismo hash ya fue APPLIED → no-op
       if (directive.payload_hash) {
         const { data: existing } = await db
           .from("ops_directives")
@@ -957,7 +967,6 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
           .limit(1);
 
         if (existing && existing.length > 0) {
-          // Marcar esta como APPLIED también (misma payload ya ejecutada)
           await db.from("ops_directives").update({
             status: "APPLIED",
             applied_at: now,
@@ -965,41 +974,141 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
             updated_at: now,
           }).eq("id", id);
 
-          return { ok: true, data: { directive_id: id, tasks_created: 0, idempotent: true } };
+          return { ok: true, data: { directive_id: id, tasks_created: 0, tasks_skipped: 0, blocked_by_requests: false, missing_requests: [], idempotent: true } };
         }
       }
 
-      // 5. Crear tasks (upsert por task_id para no duplicar)
+      // 5. Required_requests enforcement
+      const payloadJson = directive.payload_json as Record<string, unknown> | null;
+      const requiredRequests = (payloadJson?.required_requests as Array<{ request_id: string; reason: string }>) || [];
+      const missingReqIds: string[] = [];
+
+      if (requiredRequests.length > 0) {
+        // Fetch all requests from DB
+        const { data: dbRequests } = await db
+          .from("ops_requests")
+          .select("id, status")
+          .in("id", requiredRequests.map((r) => r.request_id));
+
+        const reqMap = new Map((dbRequests || []).map((r) => [r.id, r.status]));
+
+        for (const req of requiredRequests) {
+          const status = reqMap.get(req.request_id);
+          if (!status || status !== "PROVIDED") {
+            missingReqIds.push(req.request_id);
+            // Upsert request as MISSING if not exists or not PROVIDED
+            await db.from("ops_requests").upsert({
+              id: req.request_id,
+              service: "unknown",
+              type: "credentials",
+              scopes: [],
+              purpose: req.reason,
+              where_to_set: "",
+              validation_cmd: "",
+              status: status === "PROVIDED" ? "PROVIDED" : "MISSING",
+            }, { onConflict: "id" });
+          }
+        }
+
+        if (missingReqIds.length > 0) {
+          // Don't create tasks — mark directive and log
+          logDecision({
+            source: "system",
+            decision_key: "directive_blocked_by_requests",
+            decision_value: { directive_id: id, missing_requests: missingReqIds },
+            directive_id: id,
+          });
+
+          return {
+            ok: true,
+            data: {
+              directive_id: id,
+              tasks_created: 0,
+              tasks_skipped: 0,
+              blocked_by_requests: true,
+              missing_requests: missingReqIds,
+              idempotent: false,
+            },
+          };
+        }
+      }
+
+      // 6. Crear tasks con task_hash dedup
       const tasksToCreate = (directive.tasks_to_create as unknown[]) || [];
+      const directiveObjective = (payloadJson?.objective as string) || (directive.title as string) || "";
       const created: string[] = [];
+      const skipped: string[] = [];
 
       for (const task of tasksToCreate) {
         const t = task as Record<string, unknown>;
         const taskId = (t.task_id || t.id || `T-GPT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`) as string;
 
+        // Compute task_hash for dedup
+        const tHash = computeTaskHash(t as TaskToCreate, directiveObjective);
+
+        // Check if task_hash already exists in DB
+        const { data: existingByHash } = await db
+          .from("ops_tasks")
+          .select("id")
+          .eq("task_hash", tHash)
+          .limit(1);
+
+        if (existingByHash && existingByHash.length > 0) {
+          skipped.push(taskId);
+          logDecision({
+            source: "system",
+            decision_key: "task_skipped_duplicate",
+            decision_value: { task_id: taskId, existing_task_id: existingByHash[0].id, task_hash: tHash },
+            directive_id: id,
+          });
+          continue;
+        }
+
+        // Also check by task_id (backward compat)
+        const { data: existingById } = await db
+          .from("ops_tasks")
+          .select("id")
+          .eq("id", taskId)
+          .limit(1);
+
+        if (existingById && existingById.length > 0) {
+          skipped.push(taskId);
+          logDecision({
+            source: "system",
+            decision_key: "task_skipped_duplicate",
+            decision_value: { task_id: taskId, reason: "id_exists", task_hash: tHash },
+            directive_id: id,
+          });
+          continue;
+        }
+
         const { error: insertError } = await db
           .from("ops_tasks")
-          .upsert(
-            {
-              id: taskId,
-              phase: (t.phase as number) || 0,
-              title: (t.title as string) || "Sin titulo",
-              status: "ready",
-              branch: "main",
-              depends_on: (t.depends_on as string[]) || [],
-              blocked_by: [],
-              directive_id: id,
-              max_attempts: 3,
-            },
-            { onConflict: "id" }
-          );
+          .insert({
+            id: taskId,
+            phase: (t.phase as number) || 0,
+            title: (t.title as string) || "Sin titulo",
+            status: "ready",
+            branch: "main",
+            depends_on: (t.depends_on as string[]) || [],
+            blocked_by: [],
+            directive_id: id,
+            max_attempts: 3,
+            task_hash: tHash,
+          });
 
         if (!insertError) {
           created.push(taskId);
+          logDecision({
+            source: "system",
+            decision_key: "task_planned",
+            decision_value: { task_id: taskId, title: (t.title as string) || "", task_hash: tHash },
+            directive_id: id,
+          });
         }
       }
 
-      // 6. Marcar directiva como APPLIED
+      // 7. Marcar directiva como APPLIED
       await db.from("ops_directives").update({
         status: "APPLIED",
         applied_at: now,
@@ -1007,17 +1116,27 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         updated_at: now,
       }).eq("id", id);
 
-      // 7. Registrar en decisions_log
+      // 8. Registrar en decisions_log
       await db.from("decisions_log").insert({
         source: "system",
         decision_key: "directive_apply",
-        decision_value: { directive_id: id, tasks_created: created },
+        decision_value: { directive_id: id, tasks_created: created, tasks_skipped: skipped },
         context: { payload_hash: directive.payload_hash || null },
         directive_id: id,
         created_at: now,
       });
 
-      return { ok: true, data: { directive_id: id, tasks_created: created.length, idempotent: false } };
+      return {
+        ok: true,
+        data: {
+          directive_id: id,
+          tasks_created: created.length,
+          tasks_skipped: skipped.length,
+          blocked_by_requests: false,
+          missing_requests: [],
+          idempotent: false,
+        },
+      };
     }
   );
 }

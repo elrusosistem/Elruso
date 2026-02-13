@@ -11,13 +11,15 @@ interface Risk {
 
 interface TaskToCreate {
   task_id?: string;
+  task_type?: string;
   title: string;
+  steps?: string[];
   priority?: number;
+  phase?: number;
   depends_on?: string[];
   acceptance_criteria?: string[];
   description?: string;
-  // Legacy fields
-  phase?: number;
+  params?: Record<string, unknown>;
 }
 
 interface RequiredRequest {
@@ -27,11 +29,14 @@ interface RequiredRequest {
 
 interface PayloadV1 {
   version: "directive_v1";
+  directive_schema_version?: string;
   objective: string;
   context_summary?: string;
   risks?: Risk[];
   tasks_to_create: TaskToCreate[];
   required_requests?: RequiredRequest[];
+  success_criteria?: string[];
+  estimated_impact?: string;
   apply_notes?: string;
 }
 
@@ -46,8 +51,18 @@ interface Directive {
   tasks_to_create: TaskToCreate[];
   payload_json: PayloadV1 | null;
   payload_hash: string | null;
+  directive_schema_version?: string;
   applied_at: string | null;
   rejection_reason: string | null;
+}
+
+interface ApplyResult {
+  directive_id: string;
+  tasks_created: number;
+  tasks_skipped: number;
+  blocked_by_requests: boolean;
+  missing_requests: string[];
+  idempotent: boolean;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -107,8 +122,12 @@ export function DirectivesList() {
       });
       const data = await res.json();
       if (data.ok) {
-        const count = data.data?.directives_created ?? data.data?.length ?? "?";
-        setGptMessage({ type: "ok", text: `GPT completo — ${count} directiva(s) creada(s)` });
+        const d = data.data;
+        const parts: string[] = [];
+        parts.push(`${d.directives_created} creada(s)`);
+        if (d.directives_skipped > 0) parts.push(`${d.directives_skipped} duplicada(s)`);
+        if (d.validation_errors?.length > 0) parts.push(`${d.validation_errors.length} error(es) validacion`);
+        setGptMessage({ type: "ok", text: `GPT completo — ${parts.join(", ")}` });
         fetchDirectives();
       } else {
         const msg = res.status === 404
@@ -135,12 +154,18 @@ export function DirectivesList() {
 
   const applyDirective = async (id: string) => {
     const response = await apiFetch(`/api/ops/directives/${id}/apply`, { method: "POST" });
-    const data = await response.json();
-    if (data.ok) {
-      const msg = data.data.idempotent
-        ? "Directiva ya estaba aplicada (no-op)"
-        : `Directiva aplicada: ${data.data.tasks_created} tasks creadas`;
-      alert(msg);
+    const data: ApiResponse<ApplyResult> = await response.json();
+    if (data.ok && data.data) {
+      const r = data.data;
+      if (r.idempotent) {
+        alert("Directiva ya estaba aplicada (no-op)");
+      } else if (r.blocked_by_requests) {
+        alert(`Directiva bloqueada: faltan requests ${r.missing_requests.join(", ")}`);
+      } else {
+        const parts: string[] = [`${r.tasks_created} task(s) creada(s)`];
+        if (r.tasks_skipped > 0) parts.push(`${r.tasks_skipped} duplicada(s)`);
+        alert(`Directiva aplicada: ${parts.join(", ")}`);
+      }
       fetchDirectives();
     } else {
       alert(`Error: ${data.error}`);
@@ -209,7 +234,9 @@ export function DirectivesList() {
                 <span className="font-medium text-sm">{dir.id}</span>
                 <span className="text-xs text-gray-500">{dir.source}</span>
                 {dir.payload_json && (
-                  <span className="text-xs px-1 bg-gray-700 rounded text-gray-400">v1</span>
+                  <span className="text-xs px-1 bg-gray-700 rounded text-gray-400">
+                    {dir.directive_schema_version || "v1"}
+                  </span>
                 )}
               </div>
               <div className="text-sm truncate">{dir.title}</div>
@@ -236,6 +263,29 @@ export function DirectivesList() {
               {(payload?.context_summary || selectedDir.body) && (
                 <div className="text-sm text-gray-300 whitespace-pre-wrap">
                   {payload?.context_summary || selectedDir.body}
+                </div>
+              )}
+
+              {/* Estimated Impact */}
+              {payload?.estimated_impact && (
+                <div className="text-sm bg-gray-900 rounded p-3">
+                  <span className="text-gray-400 font-semibold">Impacto estimado: </span>
+                  <span className="text-gray-200">{payload.estimated_impact}</span>
+                </div>
+              )}
+
+              {/* Success Criteria */}
+              {payload?.success_criteria && payload.success_criteria.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2 text-gray-400">Criterios de exito</h4>
+                  <ul className="text-sm space-y-1">
+                    {payload.success_criteria.map((c, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <span className="text-green-500 mt-0.5">✓</span>
+                        <span>{c}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 
@@ -266,8 +316,9 @@ export function DirectivesList() {
                     <thead>
                       <tr className="text-gray-500 text-xs text-left">
                         <th className="pb-1">ID</th>
+                        <th className="pb-1">Tipo</th>
                         <th className="pb-1">Titulo</th>
-                        <th className="pb-1">Prioridad</th>
+                        <th className="pb-1">Pri</th>
                         <th className="pb-1">Deps</th>
                       </tr>
                     </thead>
@@ -277,8 +328,11 @@ export function DirectivesList() {
                           <td className="py-1 font-mono text-xs text-gray-400">
                             {t.task_id || `auto-${i + 1}`}
                           </td>
+                          <td className="py-1 text-xs text-gray-500">
+                            {t.task_type || "-"}
+                          </td>
                           <td className="py-1">{t.title}</td>
-                          <td className="py-1 text-center">{t.priority ?? t.phase ?? "-"}</td>
+                          <td className="py-1 text-center">{t.priority ?? "-"}</td>
                           <td className="py-1 text-xs text-gray-500">
                             {t.depends_on?.join(", ") || "-"}
                           </td>
@@ -352,6 +406,9 @@ export function DirectivesList() {
                 <div className="pt-4 border-t border-gray-700">
                   <div className="mb-3 text-sm text-yellow-400">
                     Aplicar creara {selectedDir.tasks_to_create.length} task(s) ejecutables.
+                    {payload?.required_requests && payload.required_requests.length > 0 && (
+                      <> Requiere: {payload.required_requests.map((r) => r.request_id).join(", ")}.</>
+                    )}
                   </div>
                   <button
                     onClick={() => applyDirective(selectedDir.id)}
@@ -379,6 +436,9 @@ export function DirectivesList() {
                 )}
                 {selectedDir.payload_hash && (
                   <> | Hash: {selectedDir.payload_hash.substring(0, 12)}...</>
+                )}
+                {selectedDir.directive_schema_version && (
+                  <> | Schema: {selectedDir.directive_schema_version}</>
                 )}
               </div>
             </div>

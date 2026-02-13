@@ -4,46 +4,117 @@ import { getDb } from "../db.js";
 import { getRequestValues } from "../vault.js";
 import { validateDirective, payloadHash } from "../contracts/directive_v1.js";
 import type { DirectiveV1 } from "../contracts/directive_v1.js";
+import { redactPatterns } from "../redact.js";
 import OpenAI from "openai";
 
-// ─── Compose mínimo y estable ─────────────────────────────────────
-// Solo: system status, metrics, tasks pendientes, requests abiertas,
-// últimos 3 runs (summary), NO logs crudos, NO diffs, NO secrets.
+// ─── Helper: decisions_log (fire-and-forget) ──────────────────────
+function logDecision(opts: {
+  source: string;
+  decision_key: string;
+  decision_value: Record<string, unknown>;
+  context?: Record<string, unknown> | null;
+  directive_id?: string | null;
+}): void {
+  const db = getDb();
+  db.from("decisions_log").insert({
+    source: opts.source,
+    decision_key: opts.decision_key,
+    decision_value: opts.decision_value,
+    context: opts.context ?? null,
+    directive_id: opts.directive_id ?? null,
+  }).then(() => {}, () => {});
+}
 
-async function composeContext(): Promise<string> {
+// ─── State snapshot (for audit, no secrets) ───────────────────────
+interface StateSnapshot {
+  paused: boolean;
+  runner_online: number;
+  tasks_ready: number;
+  tasks_running: number;
+  tasks_done: number;
+  tasks_blocked: number;
+  tasks_failed: number;
+  open_requests: number;
+  recent_runs: number;
+  timestamp: string;
+}
+
+async function buildStateSnapshot(): Promise<StateSnapshot> {
   const db = getDb();
 
-  // System status
   const { data: sysState } = await db.from("ops_state").select("value").eq("key", "system_paused").single();
   const paused = sysState ? sysState.value === true || sysState.value === "true" : false;
 
-  // Tasks resumen
-  const { data: tasks } = await db.from("ops_tasks").select("id, title, status, depends_on").order("id");
-  const tasksByStatus: Record<string, number> = {};
-  const pendingTasks: { id: string; title: string; depends_on: string[] }[] = [];
-  for (const t of tasks || []) {
-    tasksByStatus[t.status] = (tasksByStatus[t.status] || 0) + 1;
-    if (t.status === "ready" || t.status === "blocked") {
-      pendingTasks.push({ id: t.id, title: t.title, depends_on: t.depends_on || [] });
-    }
-  }
+  const { data: tasks } = await db.from("ops_tasks").select("status");
+  const counts: Record<string, number> = {};
+  for (const t of tasks || []) counts[t.status] = (counts[t.status] || 0) + 1;
 
-  // Requests abiertas
-  const { data: requests } = await db.from("ops_requests").select("id, service, purpose, status").order("id");
-  const waitingRequests = (requests || []).filter((r) => r.status === "WAITING");
+  const now = new Date();
+  const { data: runners } = await db.from("runner_heartbeats").select("last_seen_at");
+  const onlineRunners = (runners || []).filter((r) => {
+    return (now.getTime() - new Date(r.last_seen_at as string).getTime()) / 1000 <= 60;
+  }).length;
 
-  // Últimos 3 runs (solo summary)
+  const { data: reqs } = await db.from("ops_requests").select("status").in("status", ["WAITING", "MISSING", "NEEDED"]);
+  const { count: recentRuns } = await db.from("run_logs").select("id", { count: "exact", head: true });
+
+  return {
+    paused,
+    runner_online: onlineRunners,
+    tasks_ready: counts["ready"] || 0,
+    tasks_running: counts["running"] || 0,
+    tasks_done: counts["done"] || 0,
+    tasks_blocked: counts["blocked"] || 0,
+    tasks_failed: counts["failed"] || 0,
+    open_requests: (reqs || []).length,
+    recent_runs: recentRuns ?? 0,
+    timestamp: now.toISOString(),
+  };
+}
+
+// ─── Compose: prompt estructurado con secciones fijas ─────────────
+async function composeContext(): Promise<{ prompt: string; state_snapshot: StateSnapshot }> {
+  const db = getDb();
+  const snapshot = await buildStateSnapshot();
+
+  // Tasks READY (max 20)
+  const { data: readyTasks } = await db
+    .from("ops_tasks")
+    .select("id, title, depends_on, priority")
+    .eq("status", "ready")
+    .order("created_at", { ascending: true })
+    .limit(20);
+
+  // Open requests (max 20)
+  const { data: openReqs } = await db
+    .from("ops_requests")
+    .select("id, service, purpose, status")
+    .in("status", ["WAITING", "MISSING", "NEEDED"])
+    .order("id")
+    .limit(20);
+
+  // All requests for context
+  const { data: allReqs } = await db
+    .from("ops_requests")
+    .select("id, service, status")
+    .order("id");
+
+  // Last 3 runs (summary redacted)
   const { data: lastRuns } = await db
     .from("run_logs")
     .select("task_id, status, summary, started_at")
+    .neq("status", "deduped")
     .order("started_at", { ascending: false })
     .limit(3);
 
-  const runsSummary = (lastRuns || []).map((r) =>
-    `- ${r.task_id}: ${r.status} — ${r.summary || "(sin summary)"}`
-  ).join("\n");
+  // Last 10 decisions
+  const { data: lastDecisions } = await db
+    .from("decisions_log")
+    .select("decision_key, decision_value, source, created_at")
+    .order("created_at", { ascending: false })
+    .limit(10);
 
-  // Directivas recientes PENDING_REVIEW (para no duplicar)
+  // Pending directives (to avoid duplicates)
   const { data: pendingDirs } = await db
     .from("ops_directives")
     .select("id, title, status")
@@ -51,11 +122,35 @@ async function composeContext(): Promise<string> {
     .order("created_at", { ascending: false })
     .limit(5);
 
-  const pendingDirsSummary = (pendingDirs || []).map((d) =>
-    `- ${d.id}: [${d.status}] ${d.title}`
-  ).join("\n") || "(ninguna)";
+  const readyTasksSection = (readyTasks || []).length > 0
+    ? (readyTasks || []).map((t) =>
+        `- ${t.id}: ${t.title}${(t.depends_on as string[])?.length ? ` [deps: ${(t.depends_on as string[]).join(",")}]` : ""}`
+      ).join("\n")
+    : "- (ninguna)";
 
-  return `# CONTEXTO — El Ruso (Orquestador)
+  const openReqsSection = (openReqs || []).length > 0
+    ? (openReqs || []).map((r) => `- ${r.id}: [${r.status}] ${r.service} — ${r.purpose}`).join("\n")
+    : "- (ninguna pendiente)";
+
+  const allReqsSection = (allReqs || []).map((r) => `- ${r.id}: ${r.service} [${r.status}]`).join("\n");
+
+  const runsSection = (lastRuns || []).length > 0
+    ? (lastRuns || []).map((r) => `- ${r.task_id}: ${r.status} — ${r.summary || "(sin summary)"}`).join("\n")
+    : "- (sin runs)";
+
+  const decisionsSection = (lastDecisions || []).length > 0
+    ? (lastDecisions || []).map((d) => {
+        const val = d.decision_value as Record<string, unknown>;
+        const brief = Object.entries(val).map(([k, v]) => `${k}=${v}`).join(", ");
+        return `- [${d.source}] ${d.decision_key}: ${brief}`;
+      }).join("\n")
+    : "- (sin decisiones)";
+
+  const pendingDirsSection = (pendingDirs || []).length > 0
+    ? (pendingDirs || []).map((d) => `- ${d.id}: [${d.status}] ${d.title}`).join("\n")
+    : "- (ninguna)";
+
+  const rawPrompt = `# CONTEXTO — El Ruso (Orquestador)
 
 Sos el orquestador estrategico. Analiza el estado y genera directivas.
 
@@ -67,61 +162,88 @@ Responde SOLO con un JSON array. Sin texto antes ni despues. Cada elemento sigue
 [
   {
     "version": "directive_v1",
-    "objective": "Que hay que lograr (max 200 chars)",
-    "context_summary": "Por que ahora y que contexto tiene",
-    "risks": [{"id":"R1","text":"Descripcion del riesgo","severity":"low|med|high"}],
+    "directive_schema_version": "v1",
+    "objective": "Que hay que lograr (min 10 chars, max 500)",
+    "context_summary": "Por que ahora y que contexto tiene (max 2000)",
+    "risks": [{"id":"R1","text":"Descripcion del riesgo (max 500)","severity":"low|med|high"}],
     "tasks_to_create": [
       {
         "task_id": "T-GPT-<unico>",
-        "title": "Titulo de la task",
-        "priority": 3,
+        "task_type": "feature|bugfix|infra|docs|test",
+        "title": "Titulo de la task (max 200)",
+        "steps": ["Paso 1", "Paso 2"],
         "depends_on": ["T-XXX"],
+        "priority": 3,
+        "phase": 0,
+        "params": {},
         "acceptance_criteria": ["Criterio verificable"],
-        "description": "Que hacer concretamente"
+        "description": "Que hacer concretamente (max 2000)"
       }
     ],
     "required_requests": [{"request_id":"REQ-XXX","reason":"Por que se necesita"}],
+    "success_criteria": ["Criterio de exito verificable de la directiva"],
+    "estimated_impact": "Descripcion del impacto esperado",
     "apply_notes": "Notas para el humano que aprueba"
   }
 ]
 \`\`\`
 
-## REGLAS
+## STATE
+
+- Pausado: ${snapshot.paused ? "SI" : "NO"}
+- Runner online: ${snapshot.runner_online}
+- Fecha: ${snapshot.timestamp}
+
+## TASK COUNTS
+
+- ready: ${snapshot.tasks_ready}
+- running: ${snapshot.tasks_running}
+- done: ${snapshot.tasks_done}
+- blocked: ${snapshot.tasks_blocked}
+- failed: ${snapshot.tasks_failed}
+
+## TOP TASKS READY (max 20)
+${readyTasksSection}
+
+## OPEN REQUESTS
+${openReqsSection}
+
+## ALL REQUESTS
+${allReqsSection}
+
+## DIRECTIVAS PENDIENTES (no duplicar)
+${pendingDirsSection}
+
+## LAST RUNS (max 3)
+${runsSection}
+
+## LAST DECISIONS (max 10)
+${decisionsSection}
+
+## RULES
 
 1. Solo directivas accionables. No filosofia.
 2. tasks_to_create NO puede estar vacio si la directiva pretende cambios.
-3. No pedir cosas bloqueadas por REQUESTS sin resolver.
-4. Stack fijo: Node 22, TypeScript, Fastify, Supabase, Vite+React+Tailwind.
-5. Priorizar: lo que desbloquea mas tareas primero.
-6. Idioma: espanol. Max 3 directivas.
-7. No crear tasks que ya existan (ver backlog).
-8. No duplicar directivas pendientes de review.
-
----
-
-## ESTADO DEL SISTEMA
-
-- Pausado: ${paused ? "SI" : "NO"}
-- Fecha: ${new Date().toISOString()}
-
-## TASKS (resumen)
-${Object.entries(tasksByStatus).map(([s, c]) => `- ${s}: ${c}`).join("\n") || "- (vacío)"}
-
-### Pendientes (ready + blocked)
-${pendingTasks.map((t) => `- ${t.id}: ${t.title}${t.depends_on.length ? ` [deps: ${t.depends_on.join(",")}]` : ""}`).join("\n") || "- (ninguna)"}
-
-## REQUESTS ABIERTAS
-${waitingRequests.map((r) => `- ${r.id}: ${r.service} — ${r.purpose}`).join("\n") || "- (ninguna pendiente)"}
-
-## DIRECTIVAS PENDIENTES (no duplicar)
-${pendingDirsSummary}
-
-## ÚLTIMOS RUNS
-${runsSummary || "- (sin runs)"}
+3. risks requiere al menos 1 entrada.
+4. success_criteria requiere al menos 1 entrada.
+5. estimated_impact es obligatorio.
+6. No pedir cosas bloqueadas por REQUESTS sin resolver.
+7. Stack fijo: Node 22, TypeScript, Fastify, Supabase, Vite+React+Tailwind.
+8. Priorizar: lo que desbloquea mas tareas primero.
+9. Idioma: espanol. Max 3 directivas.
+10. No crear tasks que ya existan (ver backlog).
+11. No duplicar directivas pendientes de review.
+12. NO incluir secretos, tokens o API keys en el output.
+13. El output DEBE ser JSON valido que matchee el schema directive_v1 de arriba.
 
 ---
 
 Analiza y genera directivas. Prioriza lo que mas avanza el proyecto.`;
+
+  // Apply redact as defense layer (no secrets should be in prompt, but just in case)
+  const prompt = redactPatterns(rawPrompt);
+
+  return { prompt, state_snapshot: snapshot };
 }
 
 // ─── Parsear respuesta de GPT → directive_v1[] ────────────────────
@@ -159,10 +281,10 @@ function parseAndValidateGptResponse(content: string): { directives: DirectiveV1
 export async function gptRoutes(app: FastifyInstance): Promise<void> {
 
   // POST /ops/gpt/compose — genera el prompt de contexto (sin llamar a GPT)
-  app.post("/ops/gpt/compose", async (): Promise<ApiResponse<{ prompt: string; char_count: number }>> => {
+  app.post("/ops/gpt/compose", async (): Promise<ApiResponse<{ prompt: string; state_snapshot: StateSnapshot; char_count: number }>> => {
     try {
-      const prompt = await composeContext();
-      return { ok: true, data: { prompt, char_count: prompt.length } };
+      const { prompt, state_snapshot } = await composeContext();
+      return { ok: true, data: { prompt, state_snapshot, char_count: prompt.length } };
     } catch (e) {
       return { ok: false, error: `Error componiendo contexto: ${(e as Error).message}` };
     }
@@ -171,22 +293,43 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
   // POST /ops/gpt/run — pipeline: contexto → GPT → validate directive_v1 → persist PENDING_REVIEW
   app.post("/ops/gpt/run", async (request): Promise<ApiResponse<{
     directives_created: number;
+    directives_skipped: number;
     validation_errors: string[];
     model: string;
     usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null;
   }>> => {
+    // 0. Log gpt_run_started
+    logDecision({
+      source: "system",
+      decision_key: "gpt_run_started",
+      decision_value: { triggered_by: "api" },
+    });
+
     // 1. API key
     const openaiValues = getRequestValues("REQ-009");
     const apiKey = openaiValues?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
     if (!apiKey) {
+      logDecision({
+        source: "system",
+        decision_key: "gpt_run_failed",
+        decision_value: { reason: "OPENAI_API_KEY not available" },
+      });
       return { ok: false, error: "OPENAI_API_KEY no disponible." };
     }
 
     // 2. Compose
     let prompt: string;
+    let stateSnapshot: StateSnapshot;
     try {
-      prompt = await composeContext();
+      const composed = await composeContext();
+      prompt = composed.prompt;
+      stateSnapshot = composed.state_snapshot;
     } catch (e) {
+      logDecision({
+        source: "system",
+        decision_key: "gpt_run_failed",
+        decision_value: { reason: "compose_error", error: (e as Error).message },
+      });
       return { ok: false, error: `Error componiendo contexto: ${(e as Error).message}` };
     }
 
@@ -202,7 +345,7 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
         messages: [
           {
             role: "system",
-            content: "Sos el orquestador estrategico de El Ruso. Responde SOLO con un JSON array siguiendo el contrato directive_v1. Sin texto adicional.",
+            content: "Sos el orquestador estrategico de El Ruso. Responde SOLO con un JSON array siguiendo el contrato directive_v1. Sin texto adicional. Todos los campos obligatorios deben estar presentes: version, objective, risks (min 1), tasks_to_create (min 1), success_criteria (min 1), estimated_impact.",
           },
           { role: "user", content: prompt },
         ],
@@ -219,10 +362,20 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
         };
       }
     } catch (e) {
+      logDecision({
+        source: "system",
+        decision_key: "gpt_run_failed",
+        decision_value: { reason: "openai_api_error", error: redactPatterns((e as Error).message) },
+      });
       return { ok: false, error: `Error llamando a OpenAI: ${(e as Error).message}` };
     }
 
     if (!gptResponse) {
+      logDecision({
+        source: "system",
+        decision_key: "gpt_run_failed",
+        decision_value: { reason: "empty_response" },
+      });
       return { ok: false, error: "GPT devolvio respuesta vacia" };
     }
 
@@ -234,7 +387,21 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
       directives = result.directives;
       validationErrors = result.errors;
     } catch (e) {
+      logDecision({
+        source: "system",
+        decision_key: "gpt_run_failed",
+        decision_value: { reason: "parse_error", error: (e as Error).message },
+      });
       return { ok: false, error: `Error parseando respuesta de GPT: ${(e as Error).message}. Raw: ${gptResponse.substring(0, 500)}` };
+    }
+
+    // Log validation failures
+    if (validationErrors.length > 0) {
+      logDecision({
+        source: "system",
+        decision_key: "gpt_directive_validation_failed",
+        decision_value: { errors: validationErrors, count: validationErrors.length },
+      });
     }
 
     if (directives.length === 0) {
@@ -244,12 +411,27 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
       };
     }
 
-    // 5. Persistir directivas validadas
+    // 5. Persistir directivas validadas (con idempotencia por payload_hash)
     const db = getDb();
     const now = new Date().toISOString();
+    let created = 0;
+    let skipped = 0;
 
     for (const directive of directives) {
       const hash = payloadHash(directive);
+
+      // Idempotencia: si payload_hash ya existe → skip
+      const { data: existing } = await db
+        .from("ops_directives")
+        .select("id")
+        .eq("payload_hash", hash)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        skipped++;
+        continue;
+      }
+
       const directiveId = `DIR-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
 
       await db.from("ops_directives").insert({
@@ -262,12 +444,30 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
         tasks_to_create: directive.tasks_to_create,
         payload_json: directive,
         payload_hash: hash,
+        directive_schema_version: directive.directive_schema_version || "v1",
         created_at: now,
       });
+
+      logDecision({
+        source: "gpt",
+        decision_key: "gpt_directive_created",
+        decision_value: {
+          directive_id: directiveId,
+          objective: directive.objective.substring(0, 120),
+          tasks_count: directive.tasks_to_create.length,
+          risks_count: directive.risks.length,
+          payload_hash: hash,
+        },
+        context: { state_snapshot: stateSnapshot },
+        directive_id: directiveId,
+      });
+
+      created++;
     }
 
     request.log.info({
-      directives_created: directives.length,
+      directives_created: created,
+      directives_skipped: skipped,
       validation_errors: validationErrors.length,
       model,
       tokens: usage?.total_tokens,
@@ -276,7 +476,8 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
     return {
       ok: true,
       data: {
-        directives_created: directives.length,
+        directives_created: created,
+        directives_skipped: skipped,
         validation_errors: validationErrors,
         model,
         usage,
