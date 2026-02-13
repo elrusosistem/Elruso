@@ -427,10 +427,18 @@ export function DirectivesList() {
               {selectedDir.status === "PENDING_REVIEW" && (
                 <div className="flex gap-2 pt-4 border-t border-gray-700">
                   <button
-                    onClick={() => updateStatus(selectedDir.id, "APPROVED")}
-                    className="px-4 py-2 bg-blue-700 hover:bg-blue-600 rounded text-sm transition-colors"
+                    onClick={async () => {
+                      if (isOp) {
+                        // Operator: approve + apply in one click
+                        await updateStatus(selectedDir.id, "APPROVED");
+                        await applyDirective(selectedDir.id);
+                      } else {
+                        updateStatus(selectedDir.id, "APPROVED");
+                      }
+                    }}
+                    className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded text-sm transition-colors"
                   >
-                    {isOp ? "Aprobar plan" : "Aprobar"}
+                    {isOp ? "Aprobar y ejecutar" : "Aprobar"}
                   </button>
                   <button
                     onClick={() => {
@@ -444,23 +452,28 @@ export function DirectivesList() {
                 </div>
               )}
 
-              {/* Botón APPROVED → Apply */}
-              {selectedDir.status === "APPROVED" && (
+              {/* Botón APPROVED → Apply (solo modo tecnico) */}
+              {selectedDir.status === "APPROVED" && !isOp && (
                 <div className="pt-4 border-t border-gray-700">
                   <div className="mb-3 text-sm text-yellow-400">
-                    {isOp
-                      ? `Aplicar creara ${selectedDir.tasks_to_create.length} tarea(s).`
-                      : `Aplicar creara ${selectedDir.tasks_to_create.length} task(s) ejecutables.`}
+                    Aplicar creara {selectedDir.tasks_to_create.length} task(s) ejecutables.
                     {payload?.required_requests && payload.required_requests.length > 0 && (
-                      <> {isOp ? "Requiere datos:" : "Requiere:"} {payload.required_requests.map((r) => r.request_id).join(", ")}.</>
+                      <> Requiere: {payload.required_requests.map((r) => r.request_id).join(", ")}.</>
                     )}
                   </div>
                   <button
                     onClick={() => applyDirective(selectedDir.id)}
                     className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded text-sm transition-colors"
                   >
-                    {isOp ? "Aplicar plan" : "Aplicar y Crear Tasks"}
+                    Aplicar y Crear Tasks
                   </button>
+                </div>
+              )}
+
+              {/* Operator: APPROVED state — show confirmation, no extra button */}
+              {selectedDir.status === "APPROVED" && isOp && (
+                <div className="pt-4 border-t border-gray-700">
+                  <p className="text-sm text-green-400">Plan aprobado. Las tareas se estan creando.</p>
                 </div>
               )}
 
