@@ -3,10 +3,11 @@
 // --- Task status ---
 const TASK_STATUS_MAP: Record<string, { label: string; tone: string }> = {
   ready: { label: "Pendiente", tone: "text-blue-400" },
-  running: { label: "En progreso", tone: "text-yellow-400" },
-  done: { label: "Completada", tone: "text-green-400" },
-  failed: { label: "Con error", tone: "text-red-400" },
-  blocked: { label: "Bloqueada", tone: "text-gray-400" },
+  running: { label: "En curso", tone: "text-yellow-400" },
+  done: { label: "Listo", tone: "text-green-400" },
+  failed: { label: "Fallo", tone: "text-red-400" },
+  blocked: { label: "Necesita configuracion", tone: "text-red-400" },
+  deduped: { label: "Ignorado (duplicado)", tone: "text-gray-400" },
 };
 
 export function humanizeTaskStatus(status: string): { label: string; tone: string } {
@@ -43,8 +44,8 @@ export function humanizeRunnerStatus(status: string, lastSeenAt?: string): strin
 // --- Run status ---
 const RUN_STATUS_MAP: Record<string, string> = {
   running: "En curso",
-  done: "Completada",
-  failed: "Con error",
+  done: "OK",
+  failed: "Fallo",
   blocked: "Bloqueada",
   deduped: "Duplicada",
 };
@@ -63,17 +64,20 @@ const DECISION_KEY_MAP: Record<string, string> = {
   system_resume: "Sistema reanudado",
   task_created: "Se creo una tarea",
   task_claimed: "Agente tomo una tarea",
+  task_completed: "Tarea completada",
   task_requeued: "Se reintentara una tarea",
   task_blocked_max_attempts: "Tarea fallo tras reintentos",
   task_planned: "Tarea planificada",
   task_skipped_duplicate: "Tarea ya existente (omitida)",
   run_completed: "Ejecucion completada",
   run_failed: "Ejecucion fallida",
-  runner_heartbeat: "Agente envio señal de vida",
-  gpt_run_started: "GPT comenzo a generar plan",
-  gpt_directive_created: "GPT genero un plan",
-  gpt_directive_validation_failed: "Plan GPT invalido",
-  gpt_run_failed: "Error al generar plan GPT",
+  run_patch_saved: "Cambios registrados",
+  runner_heartbeat: "Agente activo",
+  backlog_cleanup: "Limpieza de tareas",
+  gpt_run_started: "Generando plan",
+  gpt_directive_created: "Plan generado",
+  gpt_directive_validation_failed: "Plan invalido",
+  gpt_run_failed: "Error al generar plan",
 };
 
 export function humanizeDecisionKey(key: string): string {
@@ -117,6 +121,17 @@ export function isOperatorVisible(task: { id: string; title?: string; status: st
   if (isTestTask(task.id, task.title)) return false;
   return true;
 }
+
+// --- Nav labels ---
+export const OPERATOR_NAV_LABELS: Record<string, string> = {
+  Dashboard: "Inicio",
+  Runs: "Ejecuciones",
+  Tasks: "Tareas",
+  Directivas: "Planes",
+  Decisions: "Registro",
+  Requests: "Configuracion",
+  Setup: "Setup", // hidden in operator mode
+};
 
 // --- Stat card labels ---
 export const OPERATOR_STAT_LABELS: Record<string, string> = {

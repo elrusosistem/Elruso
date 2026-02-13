@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
 import { apiFetch } from "./api";
 import { useUiMode } from "./uiMode";
+import { OPERATOR_NAV_LABELS } from "./humanize";
 import { RunsList } from "./pages/RunsList";
 import { RunDetail } from "./pages/RunDetail";
 import { RequestsList } from "./pages/RequestsList";
@@ -24,6 +25,8 @@ function useHash() {
 
 function StatusBadge() {
   const [status, setStatus] = useState<string>("...");
+  const [mode] = useUiMode();
+  const isOp = mode === "operator";
 
   useEffect(() => {
     apiFetch("/api/health")
@@ -33,6 +36,9 @@ function StatusBadge() {
       })
       .catch(() => setStatus("offline"));
   }, []);
+
+  // Hide raw API badge in operator mode — runner badge is enough
+  if (isOp) return null;
 
   return (
     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-800 text-xs">
@@ -49,6 +55,8 @@ function StatusBadge() {
 function RunnerBadge() {
   const [online, setOnline] = useState<number>(0);
   const [total, setTotal] = useState<number>(0);
+  const [mode] = useUiMode();
+  const isOp = mode === "operator";
 
   useEffect(() => {
     const fetch = () => {
@@ -70,9 +78,13 @@ function RunnerBadge() {
   if (total === 0) return null;
 
   return (
-    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-800 text-xs">
+    <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs ${
+      isOp && online === 0 ? "bg-red-900 text-red-200" : "bg-gray-800"
+    }`}>
       <span className={`w-2 h-2 rounded-full ${online > 0 ? "bg-green-500" : "bg-red-500"}`} />
-      Runner: {online > 0 ? `${online} ONLINE` : "OFFLINE"}
+      {isOp
+        ? (online > 0 ? "Agente activo" : "Agente apagado")
+        : `Runner: ${online > 0 ? `${online} ONLINE` : "OFFLINE"}`}
     </div>
   );
 }
@@ -80,6 +92,8 @@ function RunnerBadge() {
 function PauseControl() {
   const [paused, setPaused] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
+  const [mode] = useUiMode();
+  const isOp = mode === "operator";
 
   const fetchStatus = () => {
     apiFetch("/api/ops/system/status")
@@ -92,7 +106,7 @@ function PauseControl() {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 10000); // Poll cada 10s
+    const interval = setInterval(fetchStatus, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -115,7 +129,9 @@ function PauseControl() {
       }`}
     >
       <span className={`w-2 h-2 rounded-full ${paused ? "bg-red-400" : "bg-green-500"}`} />
-      {loading ? "..." : paused ? "Sistema PAUSADO" : "Sistema ACTIVO"}
+      {loading ? "..." : isOp
+        ? (paused ? "Pausado" : "Activo")
+        : (paused ? "Sistema PAUSADO" : "Sistema ACTIVO")}
     </button>
   );
 }
@@ -156,6 +172,8 @@ function ModeToggle() {
 
 export function App() {
   const hash = useHash();
+  const [mode] = useUiMode();
+  const isOp = mode === "operator";
 
   const runDetailMatch = hash.match(/^#\/runs\/(.+)$/);
 
@@ -180,6 +198,10 @@ export function App() {
     page = <Dashboard />;
   }
 
+  const visibleNav = isOp
+    ? NAV_ITEMS.filter((item) => item.label !== "Setup")
+    : NAV_ITEMS;
+
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
       <nav className="border-b border-gray-800 px-6 py-3 flex items-center justify-between">
@@ -187,7 +209,7 @@ export function App() {
           <a href="#/" className="text-lg font-bold tracking-tight hover:text-gray-300">
             Elruso
           </a>
-          {NAV_ITEMS.map((item) => (
+          {visibleNav.map((item) => (
             <a
               key={item.path}
               href={item.path}
@@ -199,7 +221,7 @@ export function App() {
                     : "text-gray-500"
               }`}
             >
-              {item.label}
+              {isOp ? (OPERATOR_NAV_LABELS[item.label] ?? item.label) : item.label}
             </a>
           ))}
         </div>

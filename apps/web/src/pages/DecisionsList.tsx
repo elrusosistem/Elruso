@@ -116,10 +116,18 @@ export function DecisionsList({ filterRunId, filterDirectiveId }: Props) {
         <p className="text-gray-500 text-sm">
           {isOp ? "Sin actividad registrada." : "Sin decisiones registradas."}
         </p>
-      ) : isOp ? (
+      ) : isOp ? (() => {
+        // Filter out noise in operator mode (heartbeats, patches)
+        const visible = decisions.filter((d) =>
+          d.decision_key !== "runner_heartbeat" && d.decision_key !== "run_patch_saved"
+        );
+        if (visible.length === 0) {
+          return <p className="text-gray-500 text-sm">Sin actividad reciente.</p>;
+        }
+        return (
         /* Operator mode: clean human-readable list */
         <div className="space-y-2">
-          {decisions.map((d) => (
+          {visible.map((d) => (
             <div key={d.id} className="bg-gray-900 border border-gray-800 rounded p-3">
               <div className="flex items-center gap-3">
                 <span className={`text-xs px-2 py-0.5 rounded ${SOURCE_BADGES[d.source] || "bg-gray-700"}`}>
@@ -147,7 +155,8 @@ export function DecisionsList({ filterRunId, filterDirectiveId }: Props) {
             </div>
           ))}
         </div>
-      ) : (
+        );
+      })() : (
         /* Technical mode: full raw data */
         <div className="space-y-2">
           {decisions.map((d) => (

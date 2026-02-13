@@ -34,10 +34,10 @@ const STATUSES = ["ready", "running", "done", "failed", "blocked"];
 const STATUS_LABELS_OP: Record<string, string> = {
   "": "Todas",
   ready: "Pendientes",
-  running: "En progreso",
-  done: "Completadas",
-  failed: "Con error",
-  blocked: "Bloqueadas",
+  running: "En curso",
+  done: "Listas",
+  failed: "Fallaron",
+  blocked: "Necesitan configuracion",
 };
 
 export function TasksList() {
@@ -138,7 +138,7 @@ export function TasksList() {
                               </span>
                               {isRetrying && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-900/50 text-orange-400">
-                                  {attempts}/{maxAttempts}
+                                  Reintentos: {attempts}/{maxAttempts}
                                 </span>
                               )}
                             </>
@@ -173,16 +173,16 @@ export function TasksList() {
                     <div className="text-xs text-gray-500 mt-1 ml-5 flex flex-wrap gap-x-3 gap-y-0.5">
                       {isOp ? (
                         <>
-                          {task.blocked_by.length > 0 && (
+                          {task.status === "blocked" && (
+                            <a href="#/requests" className="text-red-400 hover:underline">
+                              Ir a Configuracion
+                            </a>
+                          )}
+                          {task.blocked_by.length > 0 && task.status !== "blocked" && (
                             <span className="text-red-400">Requiere accion</span>
                           )}
-                          {nextRun && (
+                          {isRetrying && nextRun && (
                             <span className="text-yellow-400">{nextRun}</span>
-                          )}
-                          {task.last_error && (
-                            <span className="text-red-400 truncate max-w-xs" title={task.last_error}>
-                              {task.last_error.length > 60 ? task.last_error.slice(0, 60) + "..." : task.last_error}
-                            </span>
                           )}
                         </>
                       ) : (

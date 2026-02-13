@@ -57,7 +57,7 @@ export function RunsList() {
 
   return (
     <div className="p-8">
-      <h2 className="text-2xl font-bold mb-6">Ejecuciones</h2>
+      <h2 className="text-2xl font-bold mb-6">{isOp ? "Ejecuciones" : "Runs"}</h2>
       <div className="space-y-2">
         {runs.map((run) => (
           <a
@@ -82,7 +82,11 @@ export function RunsList() {
                 {isOp ? "Cambios" : "PATCH"}
               </span>
             )}
-            <span className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 uppercase">
+            <span className={`text-xs px-2 py-1 rounded uppercase ${
+              isOp
+                ? (run.status === "done" ? "bg-green-900 text-green-300" : run.status === "failed" ? "bg-red-900 text-red-300" : "bg-gray-700 text-gray-300")
+                : "bg-gray-700 text-gray-300"
+            }`}>
               {isOp ? humanizeRunStatus(run.status) : run.status}
             </span>
           </a>
