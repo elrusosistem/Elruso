@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
 import { apiFetch } from "../api";
 import { useUiMode } from "../uiMode";
-import { humanizeTaskStatus, formatNextRun } from "../humanize";
+import { humanizeTaskStatus, formatNextRun, isOperatorVisible } from "../humanize";
 
 interface TaskEntry {
   id: string;
@@ -74,7 +74,9 @@ export function TasksList() {
   if (loading) return <div className="p-8 text-gray-400">Cargando tareas...</div>;
   if (error) return <div className="p-8 text-red-400">{error}</div>;
 
-  const phases = [...new Set(tasks.map((t) => t.phase))].sort((a, b) => a - b);
+  // In operator mode, filter out test/done/deduped tasks
+  const visibleTasks = isOp ? tasks.filter((t) => isOperatorVisible(t)) : tasks;
+  const phases = [...new Set(visibleTasks.map((t) => t.phase))].sort((a, b) => a - b);
 
   return (
     <div className="p-8">
@@ -104,7 +106,7 @@ export function TasksList() {
       </div>
 
       {phases.map((phase) => {
-        const phaseTasks = tasks.filter((t) => t.phase === phase);
+        const phaseTasks = visibleTasks.filter((t) => t.phase === phase);
         if (phaseTasks.length === 0) return null;
         return (
           <div key={phase} className="mb-6">

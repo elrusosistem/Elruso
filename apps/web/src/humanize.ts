@@ -100,6 +100,24 @@ export function formatNextRun(dateStr: string | undefined | null): string | null
   return `Proximo intento a las ${date.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
+// --- Task filtering for operator mode ---
+const TEST_TASK_PATTERN = /^(T-TEST|T-SMOKE|T-CLAIM|T-AUDIT|T-LOOP|T-STUCK|T-DUMMY|SANDBOX|EXAMPLE|DEMO)/i;
+const TEST_TITLE_PATTERN = /\b(smoke.?test|claim.?test|dummy|sandbox|example)\b/i;
+
+export function isTestTask(id: string, title?: string): boolean {
+  if (TEST_TASK_PATTERN.test(id)) return true;
+  if (title && TEST_TITLE_PATTERN.test(title)) return true;
+  return false;
+}
+
+export function isOperatorVisible(task: { id: string; title?: string; status: string }): boolean {
+  // Hide done and deduped in operator mode
+  if (task.status === "done" || task.status === "deduped") return false;
+  // Hide test tasks
+  if (isTestTask(task.id, task.title)) return false;
+  return true;
+}
+
 // --- Stat card labels ---
 export const OPERATOR_STAT_LABELS: Record<string, string> = {
   "Tasks Ready": "Pendientes",

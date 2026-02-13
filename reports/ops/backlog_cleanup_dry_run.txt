@@ -1,0 +1,27 @@
+=== Backlog Cleanup — 2026-02-13T19:21:14Z ===
+Mode: --dry-run
+API: https://elruso.onrender.com
+
+Total tasks in DB: 33
+
+Tasks to mark DONE: 14
+
+  ->                                    T-017 [already_implemented] Ordenar el cerebro: reescribir ops docs, types, eliminar refs stock
+  ->                                    T-020 [already_implemented] Memoria real: POST /runs con steps y file_changes
+  ->                                    T-021 [already_implemented] Memoria real: POST /directives (crear directiva desde panel o script)
+  ->                                    T-022 [already_implemented] Memoria real: POST /tasks (crear/actualizar tasks via API)
+  ->                                    T-040 [already_implemented] Panel: dashboard de estado (health, ultimo run, tasks pendientes)
+  ->                                    T-041 [already_implemented] Panel: recibir y aplicar directivas desde el panel
+  ->                                    T-042 [already_implemented] Panel: vista de diffs y file_changes por run
+  ->                                    T-050 [already_implemented] Runner 24/7: worker con loop autonomo de tasks
+  ->                                    T-051 [already_implemented] Runner 24/7: reintentos con backoff exponencial
+  ->                 T-GPT-1770951852662-qvll [gpt_noise_superseded] Test de POST /runs, /directives y /tasks desde panel y CLI
+  ->                 T-GPT-1770951852990-ek6p [gpt_noise_superseded] Actualizar y limpiar docs y types en /ops
+  ->                 T-GPT-1770951853290-y93a [gpt_noise_superseded] Test de sincronización con ops_sync_push.sh y ops_sync_pull.sh
+  ->               T-GPT-1770951945000-memapi [gpt_noise_superseded] Completar y testear endpoints POST /runs, /directives y /tasks (memoria real)
+  ->              T-GPT-1770996000000-memtest [gpt_noise_superseded] Testear y validar endpoints POST /runs, /directives y /tasks (memoria real)
+
+[DRY-RUN] Would mark 14 tasks as done.
+[DRY-RUN] Would log backlog_cleanup decision.
+
+Run with --apply to execute changes.

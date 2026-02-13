@@ -1,0 +1,59 @@
+=== Backlog Cleanup — 2026-02-13T19:22:26Z ===
+Mode: --apply
+API: https://elruso.onrender.com
+
+Total tasks in DB: 33
+
+Tasks to mark DONE: 14
+
+  ->                                    T-017 [already_implemented] Ordenar el cerebro: reescribir ops docs, types, eliminar refs stock
+  ->                                    T-020 [already_implemented] Memoria real: POST /runs con steps y file_changes
+  ->                                    T-021 [already_implemented] Memoria real: POST /directives (crear directiva desde panel o script)
+  ->                                    T-022 [already_implemented] Memoria real: POST /tasks (crear/actualizar tasks via API)
+  ->                                    T-040 [already_implemented] Panel: dashboard de estado (health, ultimo run, tasks pendientes)
+  ->                                    T-041 [already_implemented] Panel: recibir y aplicar directivas desde el panel
+  ->                                    T-042 [already_implemented] Panel: vista de diffs y file_changes por run
+  ->                                    T-050 [already_implemented] Runner 24/7: worker con loop autonomo de tasks
+  ->                                    T-051 [already_implemented] Runner 24/7: reintentos con backoff exponencial
+  ->                 T-GPT-1770951852662-qvll [gpt_noise_superseded] Test de POST /runs, /directives y /tasks desde panel y CLI
+  ->                 T-GPT-1770951852990-ek6p [gpt_noise_superseded] Actualizar y limpiar docs y types en /ops
+  ->                 T-GPT-1770951853290-y93a [gpt_noise_superseded] Test de sincronización con ops_sync_push.sh y ops_sync_pull.sh
+  ->               T-GPT-1770951945000-memapi [gpt_noise_superseded] Completar y testear endpoints POST /runs, /directives y /tasks (memoria real)
+  ->              T-GPT-1770996000000-memtest [gpt_noise_superseded] Testear y validar endpoints POST /runs, /directives y /tasks (memoria real)
+
+Applying changes...
+
+  Marking T-017 as done... OK
+  Marking T-020 as done... OK
+  Marking T-021 as done... OK
+  Marking T-022 as done... OK
+  Marking T-040 as done... OK
+  Marking T-041 as done... OK
+  Marking T-042 as done... OK
+  Marking T-050 as done... OK
+  Marking T-051 as done... OK
+  Marking T-GPT-1770951852662-qvll as done... OK
+  Marking T-GPT-1770951852990-ek6p as done... OK
+  Marking T-GPT-1770951853290-y93a as done... OK
+  Marking T-GPT-1770951945000-memapi as done... OK
+  Marking T-GPT-1770996000000-memtest as done... OK
+
+Logging backlog_cleanup decision...
+Decision logged.
+
+=== Post-cleanup summary ===
+Total: 33
+  done: 25
+  ready: 8
+
+Remaining non-done tasks:
+  [   ready] phase=2 T-023: Migrar scripts de psql a REST API (seed, sync, migrate)
+  [   ready] phase=3 T-030: Puente GPT: testear compose_gpt_prompt de punta a punta
+  [   ready] phase=3 T-031: Puente GPT: testear apply_directives de punta a punta
+  [   ready] phase=3 T-032: Puente GPT: testear run_agent de punta a punta (ejecuta + registra)
+  [   ready] phase=5 T-052: Runner 24/7: PRs automaticos por task completada
+  [   ready] phase=6 T-060: Hardening: auth en API y panel
+  [   ready] phase=6 T-061: Hardening: multi-tenant (multiples instancias de orquestador)
+  [   ready] phase=6 T-062: Hardening: auditoria completa + monitoreo SLA
+
+=== Backlog cleanup complete ===
