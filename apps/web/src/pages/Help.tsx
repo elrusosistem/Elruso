@@ -1,4 +1,7 @@
 import { OnboardingContent } from "../components/OperatorOnboardingModal";
+import {
+  PageContainer, GlassCard, SectionBlock, HeroPanel, AnimatedFadeIn,
+} from "../ui2026";
 
 const HOW_TO_START = [
   { step: "1", title: "Crea un proyecto", desc: "Anda a Proyectos y hace clic en \"Nuevo proyecto\". Elegí un nombre y un perfil (Abierto, Tiendanube o WhatsApp API)." },
@@ -107,10 +110,21 @@ const WABA_FAQ: { q: string; a: string }[] = [
   },
 ];
 
+function FaqItem({ q, a, delay = 0 }: { q: string; a: string; delay?: number }) {
+  return (
+    <AnimatedFadeIn delay={delay}>
+      <GlassCard>
+        <h4 className="text-sm font-medium text-white mb-1">{q}</h4>
+        <p className="text-sm text-slate-400">{a}</p>
+      </GlassCard>
+    </AnimatedFadeIn>
+  );
+}
+
 export function Help() {
   return (
-    <div className="p-8 max-w-2xl">
-      <h2 className="text-2xl font-bold mb-6">Ayuda</h2>
+    <PageContainer maxWidth="md">
+      <HeroPanel title="Ayuda" subtitle="Guias, conceptos y preguntas frecuentes" />
 
       {/* Reuse onboarding content */}
       <div className="mb-10">
@@ -118,61 +132,57 @@ export function Help() {
       </div>
 
       {/* How to start */}
-      <div className="mb-10">
-        <h3 className="text-lg font-semibold mb-4">Como empezar</h3>
+      <SectionBlock title="Como empezar">
         <div className="space-y-3">
-          {HOW_TO_START.map((item) => (
-            <div key={item.step} className="flex gap-4 bg-gray-800 rounded-lg p-4">
-              <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-indigo-600 text-sm font-bold">
-                {item.step}
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-white mb-1">{item.title}</h4>
-                <p className="text-sm text-gray-400">{item.desc}</p>
-              </div>
-            </div>
+          {HOW_TO_START.map((item, i) => (
+            <AnimatedFadeIn key={item.step} delay={i * 60}>
+              <GlassCard>
+                <div className="flex gap-4">
+                  <div
+                    className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full text-sm font-bold text-white"
+                    style={{
+                      background: "linear-gradient(135deg, rgba(99,102,241,0.8), rgba(139,92,246,0.7))",
+                    }}
+                  >
+                    {item.step}
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium text-white mb-1">{item.title}</h4>
+                    <p className="text-sm text-slate-400">{item.desc}</p>
+                  </div>
+                </div>
+              </GlassCard>
+            </AnimatedFadeIn>
           ))}
         </div>
-      </div>
+      </SectionBlock>
 
       {/* Concepts */}
-      <div className="mb-10">
-        <h3 className="text-lg font-semibold mb-4">Conceptos clave</h3>
+      <SectionBlock title="Conceptos clave">
         <div className="space-y-4">
           {CONCEPTS.map((item, i) => (
-            <div key={i} className="bg-gray-800 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-white mb-1">{item.q}</h4>
-              <p className="text-sm text-gray-400">{item.a}</p>
-            </div>
+            <FaqItem key={i} q={item.q} a={item.a} delay={i * 40} />
           ))}
         </div>
-      </div>
+      </SectionBlock>
 
       {/* FAQ */}
-      <div>
-        <h3 className="text-lg font-semibold mb-4">Preguntas frecuentes</h3>
+      <SectionBlock title="Preguntas frecuentes">
         <div className="space-y-4">
           {FAQ.map((item, i) => (
-            <div key={i} className="bg-gray-800 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-white mb-1">{item.q}</h4>
-              <p className="text-sm text-gray-400">{item.a}</p>
-            </div>
+            <FaqItem key={i} q={item.q} a={item.a} delay={i * 30} />
           ))}
         </div>
-      </div>
+      </SectionBlock>
 
       {/* WABA FAQ */}
-      <div className="mt-10">
-        <h3 className="text-lg font-semibold mb-4">WhatsApp API</h3>
+      <SectionBlock title="WhatsApp API">
         <div className="space-y-4">
           {WABA_FAQ.map((item, i) => (
-            <div key={i} className="bg-gray-800 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-white mb-1">{item.q}</h4>
-              <p className="text-sm text-gray-400">{item.a}</p>
-            </div>
+            <FaqItem key={i} q={item.q} a={item.a} delay={i * 40} />
           ))}
         </div>
-      </div>
-    </div>
+      </SectionBlock>
+    </PageContainer>
   );
 }

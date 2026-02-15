@@ -3,14 +3,13 @@ import type { ApiResponse, RunLog } from "@elruso/types";
 import { apiFetch } from "../api";
 import { useUiMode } from "../uiMode";
 import { humanizeRunStatus, formatTimeAgo } from "../humanize";
-
-const STATUS_COLORS: Record<string, string> = {
-  running: "bg-blue-500",
-  done: "bg-green-500",
-  failed: "bg-red-500",
-  blocked: "bg-yellow-500",
-  deduped: "bg-gray-600",
-};
+import {
+  PageContainer,
+  GlassCard,
+  StatusPill,
+  HeroPanel,
+  AnimatedFadeIn,
+} from "../ui2026";
 
 export function RunsList() {
   const [runs, setRuns] = useState<RunLog[]>([]);
@@ -34,64 +33,79 @@ export function RunsList() {
   }, []);
 
   if (loading) {
-    return <div className="p-8 text-gray-400">Cargando ejecuciones...</div>;
+    return (
+      <PageContainer maxWidth="lg">
+        <div className="text-slate-400">Cargando ejecuciones...</div>
+      </PageContainer>
+    );
   }
 
   if (error) {
     return (
-      <div className="p-8">
-        <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 text-red-300">
-          {error}
-        </div>
-      </div>
+      <PageContainer maxWidth="lg">
+        <GlassCard glow="error">
+          <div className="text-red-300">{error}</div>
+        </GlassCard>
+      </PageContainer>
     );
   }
 
   if (runs.length === 0) {
     return (
-      <div className="p-8 text-gray-500">
-        No hay ejecuciones registradas todavia.
-      </div>
+      <PageContainer maxWidth="lg">
+        <HeroPanel title={isOp ? "Ejecuciones" : "Runs"} />
+        <div className="text-slate-500 text-center py-12">
+          No hay ejecuciones registradas todavia.
+        </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="p-8">
-      <h2 className="text-2xl font-bold mb-6">{isOp ? "Ejecuciones" : "Runs"}</h2>
+    <PageContainer maxWidth="lg">
+      <HeroPanel
+        title={isOp ? "Ejecuciones" : "Runs"}
+        subtitle={`${runs.length} ejecuci${runs.length === 1 ? "on" : "ones"} registrada${runs.length === 1 ? "" : "s"}`}
+      />
+
       <div className="space-y-2">
-        {runs.map((run) => (
-          <a
-            key={run.id}
-            href={`#/runs/${run.id}`}
-            className="flex items-center gap-4 p-4 bg-gray-800 rounded-lg hover:bg-gray-750 transition-colors"
-          >
-            <span
-              className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_COLORS[run.status] ?? "bg-gray-500"}`}
-            />
-            <div className="flex-1 min-w-0">
-              <div className="font-medium truncate">{run.task_id}</div>
-              <div className="text-sm text-gray-400">
-                {run.branch && !isOp && <span className="mr-3">{run.branch}</span>}
-                {isOp
-                  ? formatTimeAgo(run.started_at)
-                  : new Date(run.started_at).toLocaleString("es-AR")}
-              </div>
-            </div>
-            {run.artifact_path && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-purple-800 text-purple-200" title={isOp ? "Tiene cambios registrados" : "Patch forense disponible"}>
-                {isOp ? "Cambios" : "PATCH"}
-              </span>
-            )}
-            <span className={`text-xs px-2 py-1 rounded uppercase ${
-              isOp
-                ? (run.status === "done" ? "bg-green-900 text-green-300" : run.status === "failed" ? "bg-red-900 text-red-300" : "bg-gray-700 text-gray-300")
-                : "bg-gray-700 text-gray-300"
-            }`}>
-              {isOp ? humanizeRunStatus(run.status) : run.status}
-            </span>
-          </a>
+        {runs.map((run, i) => (
+          <AnimatedFadeIn key={run.id} delay={i * 40}>
+            <a href={`#/runs/${run.id}`} className="block">
+              <GlassCard hover className="!p-4">
+                <div className="flex items-center gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-white truncate">
+                      {run.task_id}
+                    </div>
+                    <div className="text-sm text-slate-400">
+                      {run.branch && !isOp && (
+                        <span className="mr-3">{run.branch}</span>
+                      )}
+                      {isOp
+                        ? formatTimeAgo(run.started_at)
+                        : new Date(run.started_at).toLocaleString("es-AR")}
+                    </div>
+                  </div>
+                  {run.artifact_path && (
+                    <StatusPill
+                      status="draft"
+                      label={isOp ? "Cambios" : "PATCH"}
+                      size="sm"
+                    />
+                  )}
+                  <StatusPill
+                    status={run.status}
+                    label={isOp ? humanizeRunStatus(run.status) : run.status}
+                    size="sm"
+                    pulse={run.status === "running"}
+                  />
+                </div>
+              </GlassCard>
+            </a>
+          </AnimatedFadeIn>
         ))}
       </div>
-    </div>
+    </PageContainer>
   );
 }

@@ -2,6 +2,12 @@ import { useState, useEffect, useMemo } from "react";
 import type { ApiResponse, Objective, WizardState } from "@elruso/types";
 import { apiFetch } from "../api";
 import { humanizeProfileId } from "../humanize";
+import {
+  PageContainer,
+  GlassCard,
+  GlowButton,
+  AnimatedFadeIn,
+} from "../ui2026";
 
 interface StepDef {
   key: string;
@@ -217,232 +223,233 @@ export function StrategyWizard() {
 
   // ── Loading ──
   if (phase === "loading") {
-    return <div className="p-8 text-gray-400">Cargando...</div>;
+    return (
+      <PageContainer maxWidth="sm">
+        <div className="text-slate-400">Cargando...</div>
+      </PageContainer>
+    );
   }
 
   // ── Already completed: show summary ──
   if (phase === "already_done") {
     return (
-      <div className="p-8 max-w-xl mx-auto">
-        <h2 className="text-2xl font-bold mb-2">Estrategia configurada</h2>
-        <p className="text-sm text-gray-400 mb-6">
-          Ya completaste la configuracion inicial para este proyecto.
-        </p>
+      <PageContainer maxWidth="sm">
+        <AnimatedFadeIn>
+          <h2 className="text-2xl font-bold mb-2 text-white">Estrategia configurada</h2>
+          <p className="text-sm text-slate-400 mb-6">
+            Ya completaste la configuracion inicial para este proyecto.
+          </p>
 
-        <div className="space-y-4 mb-8">
-          <div className="bg-gray-800 rounded-lg p-4">
-            <div className="text-xs text-gray-500 uppercase mb-1">Perfil</div>
-            <div className="text-sm text-blue-400 font-medium">{humanizeProfileId(projectProfile)}</div>
+          <div className="space-y-3 mb-8">
+            <GlassCard className="!p-4">
+              <div className="text-xs text-slate-500 uppercase mb-1">Perfil</div>
+              <div className="text-sm text-blue-400 font-medium">{humanizeProfileId(projectProfile)}</div>
+            </GlassCard>
+            {steps.map((s, i) => {
+              const val = answers[s.key];
+              if (!val) return null;
+              return (
+                <AnimatedFadeIn key={s.key} delay={i * 60}>
+                  <GlassCard className="!p-4">
+                    <div className="text-xs text-slate-500 uppercase mb-1">
+                      {s.title.replace("?", "")}
+                    </div>
+                    <div className="text-sm text-slate-200">
+                      {s.options
+                        ? s.options.find((o) => o.value === val)?.label ?? val
+                        : val}
+                    </div>
+                  </GlassCard>
+                </AnimatedFadeIn>
+              );
+            })}
           </div>
-          {steps.map((s) => {
-            const val = answers[s.key];
-            if (!val) return null;
-            return (
-              <div key={s.key} className="bg-gray-800 rounded-lg p-4">
-                <div className="text-xs text-gray-500 uppercase mb-1">
-                  {s.title.replace("?", "")}
-                </div>
-                <div className="text-sm text-gray-200">
-                  {s.options
-                    ? s.options.find((o) => o.value === val)?.label ?? val
-                    : val}
-                </div>
-              </div>
-            );
-          })}
-        </div>
 
-        <div className="flex gap-3">
-          <a
-            href="#/objectives"
-            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition-colors"
-          >
-            Ver objetivos
-          </a>
-          <a
-            href="#/requests"
-            className="px-5 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
-          >
-            Configuracion
-          </a>
-          <a
-            href="#/"
-            className="px-5 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
-          >
-            Inicio
-          </a>
-        </div>
-      </div>
+          <div className="flex gap-3">
+            <GlowButton variant="primary" size="md" onClick={() => { window.location.hash = "#/objectives"; }}>
+              Ver objetivos
+            </GlowButton>
+            <GlowButton variant="secondary" size="md" onClick={() => { window.location.hash = "#/requests"; }}>
+              Configuracion
+            </GlowButton>
+            <GlowButton variant="secondary" size="md" onClick={() => { window.location.hash = "#/"; }}>
+              Inicio
+            </GlowButton>
+          </div>
+        </AnimatedFadeIn>
+      </PageContainer>
     );
   }
 
   // ── Result screen ──
   if (phase === "result" && result) {
     return (
-      <div className="p-8 max-w-xl mx-auto">
-        <div
-          className={`rounded-lg p-8 text-center ${
-            result.success
-              ? "bg-green-900/30 border border-green-700"
-              : "bg-red-900/30 border border-red-700"
-          }`}
-        >
-          <div
-            className={`text-4xl mb-4 ${result.success ? "text-green-400" : "text-red-400"}`}
+      <PageContainer maxWidth="sm">
+        <AnimatedFadeIn>
+          <GlassCard
+            glow={result.success ? "success" : "error"}
+            className="text-center !p-8"
           >
-            {result.success ? "\u2713" : "\u2717"}
-          </div>
-          <h2 className="text-xl font-bold mb-3">
-            {result.success ? "Configuracion completa" : "Hubo un error"}
-          </h2>
-          <p className="text-gray-300 mb-6">{result.message}</p>
-          <div className="flex gap-3 justify-center">
-            {result.missingRequests ? (
-              <a
-                href="#/requests"
-                className="px-6 py-2.5 bg-yellow-700 hover:bg-yellow-600 rounded-lg text-sm font-medium transition-colors"
-              >
-                Ir a Configuracion
-              </a>
-            ) : (
-              <a
-                href="#/"
-                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition-colors"
-              >
-                Ir al Inicio
-              </a>
-            )}
-          </div>
-        </div>
-      </div>
+            <div
+              className={`text-4xl mb-4 ${result.success ? "text-green-400" : "text-red-400"}`}
+            >
+              {result.success ? "\u2713" : "\u2717"}
+            </div>
+            <h2 className="text-xl font-bold mb-3 text-white">
+              {result.success ? "Configuracion completa" : "Hubo un error"}
+            </h2>
+            <p className="text-slate-300 mb-6">{result.message}</p>
+            <div className="flex gap-3 justify-center">
+              {result.missingRequests ? (
+                <GlowButton variant="primary" size="md" onClick={() => { window.location.hash = "#/requests"; }}>
+                  Ir a Configuracion
+                </GlowButton>
+              ) : (
+                <GlowButton variant="primary" size="md" onClick={() => { window.location.hash = "#/"; }}>
+                  Ir al Inicio
+                </GlowButton>
+              )}
+            </div>
+          </GlassCard>
+        </AnimatedFadeIn>
+      </PageContainer>
     );
   }
 
   // ── Summary screen ──
   if (phase === "summary") {
     return (
-      <div className="p-8 max-w-xl mx-auto">
-        <h2 className="text-2xl font-bold mb-6">Resumen</h2>
-        <div className="space-y-4 mb-8">
-          <div className="bg-gray-800 rounded-lg p-4">
-            <div className="text-xs text-gray-500 uppercase mb-1">Perfil del proyecto</div>
-            <div className="text-sm text-blue-400 font-medium">{humanizeProfileId(projectProfile)}</div>
+      <PageContainer maxWidth="sm">
+        <AnimatedFadeIn>
+          <h2 className="text-2xl font-bold mb-6 text-white">Resumen</h2>
+          <div className="space-y-3 mb-8">
+            <GlassCard className="!p-4">
+              <div className="text-xs text-slate-500 uppercase mb-1">Perfil del proyecto</div>
+              <div className="text-sm text-blue-400 font-medium">{humanizeProfileId(projectProfile)}</div>
+            </GlassCard>
+            {steps.map((s, i) => (
+              <AnimatedFadeIn key={s.key} delay={i * 60}>
+                <GlassCard className="!p-4">
+                  <div className="text-xs text-slate-500 uppercase mb-1">
+                    {s.title.replace("?", "")}
+                  </div>
+                  <div className="text-sm text-slate-200">
+                    {s.options
+                      ? s.options.find((o) => o.value === answers[s.key])?.label ??
+                        answers[s.key] ?? "—"
+                      : answers[s.key] || "—"}
+                  </div>
+                </GlassCard>
+              </AnimatedFadeIn>
+            ))}
           </div>
-          {steps.map((s) => (
-            <div key={s.key} className="bg-gray-800 rounded-lg p-4">
-              <div className="text-xs text-gray-500 uppercase mb-1">
-                {s.title.replace("?", "")}
-              </div>
-              <div className="text-sm text-gray-200">
-                {s.options
-                  ? s.options.find((o) => o.value === answers[s.key])?.label ??
-                    answers[s.key] ?? "—"
-                  : answers[s.key] || "—"}
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={handleBack}
-            className="px-5 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
-          >
-            Volver
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={saving}
-            className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 rounded-lg text-sm font-medium transition-colors flex-1"
-          >
-            {saving ? "Guardando..." : "Comenzar"}
-          </button>
-        </div>
-      </div>
+          <div className="flex gap-3">
+            <GlowButton variant="secondary" size="md" onClick={handleBack}>
+              Volver
+            </GlowButton>
+            <GlowButton
+              variant="primary"
+              size="lg"
+              onClick={handleSubmit}
+              disabled={saving}
+              className="flex-1"
+            >
+              {saving ? "Guardando..." : "Comenzar"}
+            </GlowButton>
+          </div>
+        </AnimatedFadeIn>
+      </PageContainer>
     );
   }
 
   // ── Questions screen ──
   return (
-    <div className="p-8 max-w-xl mx-auto">
+    <PageContainer maxWidth="sm">
       {/* Profile badge (read-only, from project) */}
-      <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-blue-900/30 border border-blue-700 rounded text-sm">
-        <span className="text-blue-400 font-medium">Perfil:</span>
-        <span className="text-white">{humanizeProfileId(projectProfile)}</span>
-      </div>
+      <AnimatedFadeIn>
+        <GlassCard glow="primary" className="!p-3 mb-4">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-blue-400 font-medium">Perfil:</span>
+            <span className="text-white">{humanizeProfileId(projectProfile)}</span>
+          </div>
+        </GlassCard>
+      </AnimatedFadeIn>
 
       {/* Progress bar */}
       <div className="flex items-center gap-2 mb-8">
         {steps.map((_, i) => (
           <div
             key={i}
-            className={`h-1.5 flex-1 rounded-full transition-colors ${
-              i <= currentStep ? "bg-indigo-500" : "bg-gray-700"
-            }`}
+            className="h-1.5 flex-1 rounded-full transition-all duration-300"
+            style={
+              i <= currentStep
+                ? { background: "linear-gradient(90deg, #6366F1, #06B6D4)" }
+                : { background: "rgba(51, 65, 85, 0.5)" }
+            }
           />
         ))}
       </div>
 
       {/* Step counter */}
-      <div className="text-xs text-gray-500 mb-2">
+      <div className="text-xs text-slate-500 mb-2">
         Paso {currentStep + 1} de {totalSteps}
       </div>
 
       {/* Question */}
-      <h2 className="text-xl font-bold mb-2">{step.title}</h2>
-      <p className="text-sm text-gray-400 mb-6">{step.subtitle}</p>
+      <AnimatedFadeIn key={`step-${currentStep}`}>
+        <h2 className="text-xl font-bold mb-2 text-white">{step.title}</h2>
+        <p className="text-sm text-slate-400 mb-6">{step.subtitle}</p>
 
-      {/* Input */}
-      {step.type === "textarea" && (
-        <textarea
-          value={answers[step.key] ?? ""}
-          onChange={(e) =>
-            setAnswers({ ...answers, [step.key]: e.target.value })
-          }
-          placeholder={step.placeholder}
-          rows={4}
-          className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-sm text-gray-200 placeholder-gray-600 focus:border-indigo-500 focus:outline-none resize-none"
-        />
-      )}
+        {/* Input */}
+        {step.type === "textarea" && (
+          <textarea
+            value={answers[step.key] ?? ""}
+            onChange={(e) =>
+              setAnswers({ ...answers, [step.key]: e.target.value })
+            }
+            placeholder={step.placeholder}
+            rows={4}
+            className="w-full bg-elevated border border-[rgba(148,163,184,0.08)] rounded-lg px-4 py-3 text-sm text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:outline-none resize-none transition-colors"
+          />
+        )}
 
-      {step.type === "radio" && step.options && (
-        <div className="space-y-2">
-          {step.options.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() =>
-                setAnswers({ ...answers, [step.key]: opt.value })
-              }
-              className={`w-full text-left p-4 rounded-lg border transition-colors ${
-                answers[step.key] === opt.value
-                  ? "bg-indigo-900/30 border-indigo-500"
-                  : "bg-gray-800 border-gray-700 hover:border-gray-500"
-              }`}
-            >
-              <div className="text-sm font-medium">{opt.label}</div>
-              <div className="text-xs text-gray-400">{opt.desc}</div>
-            </button>
-          ))}
-        </div>
-      )}
+        {step.type === "radio" && step.options && (
+          <div className="space-y-2">
+            {step.options.map((opt) => (
+              <GlassCard
+                key={opt.value}
+                hover
+                glow={answers[step.key] === opt.value ? "primary" : "none"}
+                onClick={() =>
+                  setAnswers({ ...answers, [step.key]: opt.value })
+                }
+                className="!p-4"
+              >
+                <div className="text-sm font-medium text-white">{opt.label}</div>
+                <div className="text-xs text-slate-400">{opt.desc}</div>
+              </GlassCard>
+            ))}
+          </div>
+        )}
+      </AnimatedFadeIn>
 
       {/* Navigation */}
       <div className="flex gap-3 mt-8">
         {currentStep > 0 && (
-          <button
-            onClick={handleBack}
-            className="px-5 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
-          >
+          <GlowButton variant="secondary" size="md" onClick={handleBack}>
             Anterior
-          </button>
+          </GlowButton>
         )}
-        <button
+        <GlowButton
+          variant="primary"
+          size="lg"
           onClick={handleNext}
           disabled={!canNext}
-          className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors flex-1"
+          className="flex-1"
         >
           {currentStep === totalSteps - 1 ? "Revisar" : "Siguiente"}
-        </button>
+        </GlowButton>
       </div>
-    </div>
+    </PageContainer>
   );
 }

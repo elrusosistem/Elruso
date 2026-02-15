@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
 import { apiFetch } from "../api";
+import {
+  PageContainer,
+  GlassCard,
+  StatusPill,
+  HeroPanel,
+  AnimatedFadeIn,
+} from "../ui2026";
 
 interface RunnerHeartbeat {
   id: string;
@@ -38,39 +45,39 @@ export function RunnersList() {
 
   if (loading) {
     return (
-      <div className="p-6">
-        <div className="text-gray-400">Cargando runners...</div>
-      </div>
+      <PageContainer maxWidth="lg">
+        <div className="text-slate-400">Cargando runners...</div>
+      </PageContainer>
     );
   }
 
   if (error) {
     return (
-      <div className="p-6">
-        <div className="text-red-400">Error: {error}</div>
-      </div>
+      <PageContainer maxWidth="lg">
+        <GlassCard glow="error">
+          <div className="text-red-400">Error: {error}</div>
+        </GlassCard>
+      </PageContainer>
     );
   }
 
   const onlineCount = runners.filter((r) => r.status === "online").length;
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Runners</h1>
-        <div className="text-sm text-gray-400">
-          {onlineCount} online / {runners.length} total
-        </div>
-      </div>
+    <PageContainer maxWidth="lg">
+      <HeroPanel
+        title="Runners"
+        subtitle={`${onlineCount} online / ${runners.length} total`}
+      />
 
       {runners.length === 0 && (
-        <div className="text-gray-500 text-center py-12">
+        <div className="text-slate-500 text-center py-12">
           No hay runners registrados
         </div>
       )}
 
       <div className="space-y-2">
-        {runners.map((runner) => {
+        {runners.map((runner, i) => {
           const lastSeen = new Date(runner.last_seen_at);
           const ago = Math.floor((Date.now() - lastSeen.getTime()) / 1000);
           const agoText =
@@ -81,45 +88,45 @@ export function RunnersList() {
               : `${Math.floor(ago / 3600)}h`;
 
           return (
-            <div
-              key={runner.id}
-              className="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-gray-700 transition-colors"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-3 h-3 rounded-full ${
-                      runner.status === "online" ? "bg-green-500" : "bg-gray-600"
-                    }`}
-                  />
-                  <div>
-                    <div className="font-mono text-sm text-white">
-                      {runner.runner_id}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      Last seen: {agoText} ago
+            <AnimatedFadeIn key={runner.id} delay={i * 50}>
+              <GlassCard hover className="!p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-3 h-3 rounded-full ${
+                        runner.status === "online"
+                          ? "bg-green-500 animate-pulse"
+                          : "bg-slate-600"
+                      }`}
+                    />
+                    <div>
+                      <div className="font-mono text-sm text-white">
+                        {runner.runner_id}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        Last seen: {agoText} ago
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="text-right">
-                  <div
-                    className={`text-xs font-semibold ${
-                      runner.status === "online" ? "text-green-400" : "text-gray-500"
-                    }`}
-                  >
-                    {runner.status.toUpperCase()}
+                  <div className="flex items-center gap-3">
+                    {runner.meta && Object.keys(runner.meta).length > 0 && (
+                      <div className="text-xs text-slate-500">
+                        {runner.meta.hostname ? `@${String(runner.meta.hostname)}` : null}
+                      </div>
+                    )}
+                    <StatusPill
+                      status={runner.status}
+                      label={runner.status.toUpperCase()}
+                      size="sm"
+                      pulse={runner.status === "online"}
+                    />
                   </div>
-                  {runner.meta && Object.keys(runner.meta).length > 0 && (
-                    <div className="text-xs text-gray-600 mt-1">
-                      {runner.meta.hostname && `@${runner.meta.hostname}`}
-                    </div>
-                  )}
                 </div>
-              </div>
-            </div>
+              </GlassCard>
+            </AnimatedFadeIn>
           );
         })}
       </div>
-    </div>
+    </PageContainer>
   );
 }

@@ -3,7 +3,10 @@ import type { ApiResponse } from "@elruso/types";
 import { apiFetch } from "../api";
 import { useUiMode } from "../uiMode";
 import { OPERATOR_STAT_LABELS, humanizeRunnerName, humanizeRunnerStatus } from "../humanize";
-import { Tooltip } from "../components/Tooltip";
+import {
+  PageContainer, HeroPanel, GlassCard, GlowButton, MetricCard,
+  SectionBlock, StatusPill, AnimatedFadeIn, Tooltip2026,
+} from "../ui2026";
 
 interface TaskEntry {
   id: string;
@@ -50,16 +53,6 @@ function formatAge(seconds: number | null): string {
   return `${(seconds / 86400).toFixed(1)}d`;
 }
 
-function StatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
-  return (
-    <div className="bg-gray-800 rounded-lg p-4">
-      <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">{label}</div>
-      <div className={`text-2xl font-bold ${color ?? "text-white"}`}>{value}</div>
-      {sub && <div className="text-xs text-gray-500 mt-1">{sub}</div>}
-    </div>
-  );
-}
-
 export function Dashboard() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [runners, setRunners] = useState<Runner[]>([]);
@@ -69,19 +62,16 @@ export function Dashboard() {
   const [mode] = useUiMode();
   const isOp = mode === "operator";
 
-  // Action button states
   const [gptRunning, setGptRunning] = useState(false);
   const [actionMsg, setActionMsg] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [paused, setPaused] = useState(false);
   const [pauseLoading, setPauseLoading] = useState(false);
 
-  // VM control
   const [vmStatus, setVmStatus] = useState<string | null>(null);
   const [vmConfigured, setVmConfigured] = useState(false);
   const [vmLoading, setVmLoading] = useState(false);
   const [vmProgress, setVmProgress] = useState<{ step: string; pct: number } | null>(null);
 
-  // Wizard + preconditions
   const [wizardDone, setWizardDone] = useState<boolean | null>(null);
   const [canPlan, setCanPlan] = useState(true);
   const [planBlockReason, setPlanBlockReason] = useState<string>("");
@@ -120,7 +110,6 @@ export function Dashboard() {
           const s = sData as ApiResponse<{ paused: boolean }>;
           if (s.ok && s.data) setPaused(s.data.paused);
         }
-        // Wizard + preconditions
         if (wizData) {
           const wiz = wizData as ApiResponse<{ has_completed_wizard: boolean }>;
           if (wiz.ok && wiz.data) setWizardDone(wiz.data.has_completed_wizard);
@@ -140,7 +129,6 @@ export function Dashboard() {
             }
           }
         }
-        // VM status
         if (vmData) {
           const vm = vmData as ApiResponse<{ vm_status: string; configured: boolean }>;
           if (vm.ok && vm.data) {
@@ -148,7 +136,6 @@ export function Dashboard() {
             setVmConfigured(vm.data.configured);
           }
         }
-        // Checklist detection
         if (dData && runsData) {
           const dirs = (dData as ApiResponse<{ status: string }[]>).data ?? [];
           const runs = (runsData as ApiResponse<{ status: string }[]>).data ?? [];
@@ -171,14 +158,13 @@ export function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchAll]);
 
-  if (loading) return <div className="p-8 text-gray-400">Cargando...</div>;
+  if (loading) return <div className="p-8 text-slate-500">Cargando...</div>;
   if (!metrics) return <div className="p-8 text-red-400">Error cargando datos</div>;
 
   const onlineRunners = runners.filter((r) => r.status === "online");
   const failRate = metrics.runs.fail_rate_last_20;
   const label = (key: string) => (isOp ? OPERATOR_STAT_LABELS[key] ?? key : key);
 
-  // --- Action handlers (operator) ---
   const runGpt = async () => {
     setGptRunning(true);
     setActionMsg(null);
@@ -192,9 +178,7 @@ export function Dashboard() {
       if (data.ok) {
         setActionMsg({ type: "ok", text: "Plan generado. Revisalo en Planes." });
       } else {
-        const msg = res.status === 401
-          ? "No autorizado: falta token"
-          : data.error ?? `Error ${res.status}`;
+        const msg = res.status === 401 ? "No autorizado: falta token" : data.error ?? `Error ${res.status}`;
         setActionMsg({ type: "error", text: msg });
       }
     } catch (e: unknown) {
@@ -228,10 +212,8 @@ export function Dashboard() {
   const vmAction = async (action: "start" | "stop" | "reset") => {
     setVmLoading(true);
     setActionMsg(null);
-
     const isStart = action === "start" || action === "reset";
 
-    // Step 1: send command
     setVmProgress({ step: "Enviando comando...", pct: 5 });
     try {
       const res = await apiFetch(`/api/ops/runner/vm/${action}`, { method: "POST" });
@@ -249,11 +231,9 @@ export function Dashboard() {
       return;
     }
 
-    // Step 2: poll VM status
     setVmProgress({ step: isStart ? "Esperando que la VM arranque..." : "Esperando que la VM se apague...", pct: 15 });
-
     const targetVmStatus = isStart ? "running" : "terminated";
-    const maxPolls = 30; // ~90s
+    const maxPolls = 30;
     let polls = 0;
     let vmReady = false;
 
@@ -261,19 +241,13 @@ export function Dashboard() {
       await new Promise((r) => setTimeout(r, 3000));
       polls++;
       const pct = Math.min(15 + Math.round((polls / maxPolls) * 50), 65);
-
       try {
         const vmRes = await apiFetch("/api/ops/runner/vm");
         const vmData = (await vmRes.json()) as ApiResponse<{ vm_status: string }>;
         if (vmData.ok && vmData.data) {
           const st = vmData.data.vm_status;
           setVmStatus(st);
-
-          if (st === targetVmStatus) {
-            vmReady = true;
-            break;
-          }
-
+          if (st === targetVmStatus) { vmReady = true; break; }
           const vmLabels: Record<string, string> = {
             staging: "VM iniciando el sistema operativo...",
             running: "VM encendida",
@@ -283,7 +257,7 @@ export function Dashboard() {
           };
           setVmProgress({ step: vmLabels[st] ?? `VM: ${st}`, pct });
         }
-      } catch { /* ignore, retry */ }
+      } catch { /* retry */ }
     }
 
     if (!vmReady) {
@@ -294,49 +268,33 @@ export function Dashboard() {
       return;
     }
 
-    // Step 3: if starting, wait for runner to come online
     if (isStart) {
       setVmProgress({ step: "VM lista. Esperando que el agente arranque...", pct: 70 });
-
       let runnerOnline = false;
-      const maxRunnerPolls = 20; // ~60s
+      const maxRunnerPolls = 20;
       let rPolls = 0;
-
       while (rPolls < maxRunnerPolls) {
         await new Promise((r) => setTimeout(r, 3000));
         rPolls++;
         const pct = Math.min(70 + Math.round((rPolls / maxRunnerPolls) * 25), 95);
-
         try {
           const rRes = await apiFetch("/api/ops/runner/status");
           const rData = (await rRes.json()) as ApiResponse<Runner[]>;
           if (rData.ok && rData.data) {
             setRunners(rData.data);
-            if (rData.data.some((r) => r.status === "online")) {
-              runnerOnline = true;
-              break;
-            }
+            if (rData.data.some((r) => r.status === "online")) { runnerOnline = true; break; }
           }
           setVmProgress({ step: "Agente iniciando servicios...", pct });
         } catch { /* ignore */ }
       }
-
-      if (runnerOnline) {
-        setVmProgress({ step: "Agente online. Todo listo.", pct: 100 });
-      } else {
-        setVmProgress({ step: "VM lista pero el agente tarda en responder. Puede tardar unos segundos mas.", pct: 95 });
-      }
+      setVmProgress(runnerOnline
+        ? { step: "Agente online. Todo listo.", pct: 100 }
+        : { step: "VM lista pero el agente tarda en responder.", pct: 95 });
     } else {
-      // stopping
       setVmProgress({ step: "VM apagada correctamente.", pct: 100 });
     }
 
-    // Clear after 3s
-    setTimeout(() => {
-      setVmProgress(null);
-      setVmLoading(false);
-      fetchAll();
-    }, 3000);
+    setTimeout(() => { setVmProgress(null); setVmLoading(false); fetchAll(); }, 3000);
   };
 
   const refresh = () => {
@@ -352,30 +310,64 @@ export function Dashboard() {
   // =====================
   if (isOp) {
     return (
-      <div className="p-8 max-w-3xl">
-        <h2 className="text-2xl font-bold mb-6">Inicio</h2>
+      <PageContainer maxWidth="lg">
+        <HeroPanel
+          title="Centro de Control"
+          subtitle="Vista general del sistema"
+          actions={
+            <>
+              <Tooltip2026 text={!canPlan ? planBlockReason : "La IA analiza el sistema y propone mejoras"}>
+                <GlowButton
+                  onClick={runGpt}
+                  disabled={gptRunning || !canPlan}
+                  variant="primary"
+                >
+                  {gptRunning ? "Generando..." : "Generar plan"}
+                </GlowButton>
+              </Tooltip2026>
+              <Tooltip2026 text={paused ? "Reanudar la ejecucion de tareas" : "Detener temporalmente todas las tareas"}>
+                <GlowButton
+                  onClick={togglePause}
+                  disabled={pauseLoading}
+                  variant={paused ? "danger" : "secondary"}
+                >
+                  {pauseLoading ? "..." : paused ? "Reanudar" : "Pausar"}
+                </GlowButton>
+              </Tooltip2026>
+              <GlowButton onClick={refresh} variant="ghost">
+                Actualizar
+              </GlowButton>
+            </>
+          }
+        />
+
+        {/* Action feedback */}
+        {actionMsg && (
+          <div className={`mb-6 text-sm px-4 py-2 rounded-card ${
+            actionMsg.type === "ok" ? "text-green-400 bg-green-500/10" : "text-red-400 bg-red-500/10"
+          }`}>
+            {actionMsg.text}
+          </div>
+        )}
 
         {/* Wizard banner */}
         {wizardDone === false && (
-          <div className="mb-6 p-5 bg-indigo-900/30 border border-indigo-600 rounded-lg">
-            <h3 className="text-lg font-semibold mb-1">Para empezar, necesitamos conocer tu negocio</h3>
-            <p className="text-sm text-gray-400 mb-4">
+          <GlassCard glow="primary" className="mb-6">
+            <h3 className="text-lg font-semibold mb-1 text-white">Para empezar, necesitamos conocer tu negocio</h3>
+            <p className="text-sm text-slate-400 mb-4">
               Completa una configuracion rapida para que el sistema sepa que hacer.
             </p>
-            <a
-              href="#/strategy-wizard"
-              className="inline-block px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition-colors"
-            >
-              Definir estrategia
+            <a href="#/strategy-wizard">
+              <GlowButton variant="primary">Definir estrategia</GlowButton>
             </a>
-          </div>
+          </GlassCard>
         )}
 
         {/* Runner / VM status alert */}
         {onlineRunners.length === 0 && !vmProgress && (
-          <div className="mb-6 p-4 bg-red-900/40 border border-red-700 rounded-lg">
+          <GlassCard glow="error" className="mb-6">
             <div className="flex items-center gap-3">
-              <span className="w-3 h-3 rounded-full bg-red-500 flex-shrink-0" />
+              <span className="w-3 h-3 rounded-full bg-red-500 flex-shrink-0 animate-pulse" />
               <span className="text-red-200 font-medium flex-1">
                 {vmConfigured && vmStatus !== "running"
                   ? "VM apagada — el agente no puede correr"
@@ -383,104 +375,61 @@ export function Dashboard() {
               </span>
               {vmConfigured && !vmLoading && (
                 vmStatus !== "running" ? (
-                  <button
-                    onClick={() => vmAction("start")}
-                    className="px-4 py-1.5 text-xs bg-green-700 hover:bg-green-600 rounded font-medium transition-colors"
-                  >
+                  <GlowButton onClick={() => vmAction("start")} variant="secondary" size="sm">
                     Prender
-                  </button>
+                  </GlowButton>
                 ) : (
-                  <button
-                    onClick={() => vmAction("reset")}
-                    className="px-4 py-1.5 text-xs bg-yellow-700 hover:bg-yellow-600 rounded font-medium transition-colors"
-                  >
+                  <GlowButton onClick={() => vmAction("reset")} variant="secondary" size="sm">
                     Reiniciar
-                  </button>
+                  </GlowButton>
                 )
               )}
             </div>
-          </div>
+          </GlassCard>
         )}
 
-        {/* 3 Top action buttons with tooltips */}
-        <div className="flex flex-wrap gap-3 mb-6">
-          <Tooltip text={!canPlan ? planBlockReason : "La IA analiza el sistema y propone mejoras"}>
-            <button
-              onClick={runGpt}
-              disabled={gptRunning || !canPlan}
-              className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                gptRunning || !canPlan
-                  ? "bg-gray-600 cursor-not-allowed text-gray-400"
-                  : "bg-indigo-600 hover:bg-indigo-500 text-white"
-              }`}
-            >
-              {gptRunning ? "Generando..." : "Generar plan (GPT)"}
-            </button>
-          </Tooltip>
-          <Tooltip text={paused ? "Reanudar la ejecucion de tareas" : "Detener temporalmente todas las tareas"}>
-            <button
-              onClick={togglePause}
-              disabled={pauseLoading}
-              className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                paused
-                  ? "bg-green-700 hover:bg-green-600 text-white"
-                  : "bg-yellow-700 hover:bg-yellow-600 text-white"
-              }`}
-            >
-              {pauseLoading ? "..." : paused ? "Reanudar" : "Pausar"}
-            </button>
-          </Tooltip>
-          <button
-            onClick={refresh}
-            className="px-5 py-2.5 rounded-lg text-sm font-medium bg-gray-700 hover:bg-gray-600 text-white transition-colors"
-          >
-            Actualizar
-          </button>
-        </div>
-
-        {/* Action feedback */}
-        {actionMsg && (
-          <div className={`mb-6 text-sm ${actionMsg.type === "ok" ? "text-green-400" : "text-red-400"}`}>
-            {actionMsg.text}
-          </div>
-        )}
-
-        {/* 4 key stats with tooltips */}
+        {/* 4 key stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-          <StatCard label="Pendientes" value={metrics.tasks.ready} color="text-blue-400" />
-          <Tooltip text="Tareas que el sistema esta ejecutando ahora">
-            <div className="w-full"><StatCard label="En curso" value={metrics.tasks.running} color="text-yellow-400" /></div>
-          </Tooltip>
-          <Tooltip text="Falta una clave o dato para continuar">
-            <div className="w-full"><StatCard
-              label="Necesitan configuracion"
+          <AnimatedFadeIn delay={0}>
+            <MetricCard label="Pendientes" value={metrics.tasks.ready} color="text-blue-400" />
+          </AnimatedFadeIn>
+          <AnimatedFadeIn delay={50}>
+            <MetricCard label="En curso" value={metrics.tasks.running} color="text-yellow-400" />
+          </AnimatedFadeIn>
+          <AnimatedFadeIn delay={100}>
+            <MetricCard
+              label="Necesitan config"
               value={metrics.tasks.blocked}
-              color={metrics.tasks.blocked > 0 ? "text-red-400" : "text-gray-400"}
-            /></div>
-          </Tooltip>
-          <StatCard
-            label="Agente"
-            value={onlineRunners.length > 0 ? "Activo" : "Apagado"}
-            color={onlineRunners.length > 0 ? "text-green-400" : "text-red-400"}
-          />
+              color={metrics.tasks.blocked > 0 ? "text-red-400" : "text-slate-500"}
+              glow={metrics.tasks.blocked > 0 ? "error" : "none"}
+            />
+          </AnimatedFadeIn>
+          <AnimatedFadeIn delay={150}>
+            <MetricCard
+              label="Agente"
+              value={onlineRunners.length > 0 ? "Activo" : "Apagado"}
+              color={onlineRunners.length > 0 ? "text-green-400" : "text-red-400"}
+              glow={onlineRunners.length > 0 ? "success" : "error"}
+            />
+          </AnimatedFadeIn>
         </div>
 
         {/* Blocked → link to configuration */}
         {metrics.tasks.blocked > 0 && (
-          <div className="mb-6 p-3 bg-yellow-900/30 border border-yellow-700 rounded-lg">
+          <GlassCard glow="warning" className="mb-6">
             <span className="text-yellow-300 text-sm">
               Hay {metrics.tasks.blocked} tarea(s) que necesitan datos para avanzar.
             </span>
-            <a href="#/requests" className="text-sm text-blue-400 hover:underline ml-2">
+            <a href="#/requests" className="text-sm text-blue-400 hover:text-blue-300 ml-2 transition-colors">
               Ir a Configuracion
             </a>
-          </div>
+          </GlassCard>
         )}
 
         {/* Checklist: Como empezar */}
-        <div className="mb-8 bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-gray-300 mb-3">Como empezar</h3>
-          <div className="space-y-2">
+        <GlassCard className="mb-8">
+          <h3 className="text-sm font-semibold text-slate-300 mb-3">Como empezar</h3>
+          <div className="space-y-2.5">
             {[
               { done: checklist.hasPlan, label: "Generar plan", sub: "Crear una propuesta con el boton de arriba" },
               { done: checklist.hasApproved, label: "Aprobar plan", sub: "Revisar y aprobar en Planes" },
@@ -489,104 +438,109 @@ export function Dashboard() {
             ].map((step, i) => (
               <div key={i} className="flex items-start gap-3">
                 <span className={`mt-0.5 w-5 h-5 rounded flex items-center justify-center text-xs flex-shrink-0 ${
-                  step.done ? "bg-green-900 text-green-400" : "bg-gray-700 text-gray-500"
-                }`}>
+                  step.done
+                    ? "text-green-400"
+                    : "bg-elevated text-slate-600"
+                }`}
+                  style={step.done ? { background: "linear-gradient(135deg, rgba(34,197,94,0.2), rgba(6,182,212,0.15))" } : undefined}
+                >
                   {step.done ? "\u2713" : (i + 1)}
                 </span>
                 <div>
-                  <span className={`text-sm ${step.done ? "text-green-400 line-through" : "text-gray-200"}`}>{step.label}</span>
-                  {!step.done && <p className="text-xs text-gray-500">{step.sub}</p>}
+                  <span className={`text-sm ${step.done ? "text-green-400 line-through" : "text-slate-200"}`}>{step.label}</span>
+                  {!step.done && <p className="text-xs text-slate-500">{step.sub}</p>}
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </GlassCard>
 
         {/* Objetivos activos */}
         {activeObjectives.length > 0 && (
-          <div className="mb-8">
-            <h3 className="text-lg font-semibold mb-3">Objetivos activos</h3>
+          <SectionBlock title="Objetivos activos">
             <div className="space-y-2">
               {activeObjectives.map((obj) => (
-                <div key={obj.id} className="flex items-center gap-3 bg-gray-800 rounded-lg px-4 py-3">
-                  <span className="w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0" />
-                  <span className="text-sm text-gray-200 flex-1">{obj.title}</span>
-                  <span className="text-xs text-gray-500">P{obj.priority}</span>
-                </div>
+                <GlassCard key={obj.id} hover className="!p-3">
+                  <div className="flex items-center gap-3">
+                    <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+                    <span className="text-sm text-slate-200 flex-1">{obj.title}</span>
+                    <span className="text-xs text-slate-600">P{obj.priority}</span>
+                  </div>
+                </GlassCard>
               ))}
             </div>
-            <a href="#/objectives" className="text-xs text-blue-400 hover:underline mt-2 inline-block">
+            <a href="#/objectives" className="text-xs text-accent-primary hover:text-indigo-300 mt-3 inline-block transition-colors">
               Ver todos los objetivos
             </a>
-          </div>
+          </SectionBlock>
         )}
 
-        {/* Lo próximo — top 5 ready tasks */}
-        <div className="mb-8">
-          <h3 className="text-lg font-semibold mb-3">Lo proximo</h3>
+        {/* Lo proximo */}
+        <SectionBlock title="Lo proximo">
           {nextTasks.length === 0 ? (
-            <p className="text-gray-500 text-sm">No hay tareas pendientes.</p>
+            <p className="text-slate-500 text-sm">No hay tareas pendientes.</p>
           ) : (
             <div className="space-y-2">
               {nextTasks.map((t) => (
-                <div key={t.id} className="flex items-center gap-3 bg-gray-800 rounded-lg px-4 py-3">
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 flex-shrink-0" />
-                  <span className="text-sm text-gray-200 flex-1">{t.title}</span>
-                </div>
+                <GlassCard key={t.id} hover className="!p-3">
+                  <div className="flex items-center gap-3">
+                    <StatusPill status="ready" label="Pendiente" />
+                    <span className="text-sm text-slate-200 flex-1 truncate">{t.title}</span>
+                  </div>
+                </GlassCard>
               ))}
             </div>
           )}
           {nextTasks.length > 0 && (
-            <a href="#/tasks" className="text-xs text-blue-400 hover:underline mt-2 inline-block">
+            <a href="#/tasks" className="text-xs text-accent-primary hover:text-indigo-300 mt-3 inline-block transition-colors">
               Ver todas las tareas
             </a>
           )}
-        </div>
+        </SectionBlock>
 
         {/* Agente + VM control */}
-        <div>
-          <h3 className="text-lg font-semibold mb-3">Agente</h3>
-
+        <SectionBlock title="Agente">
           {/* Progress bar */}
           {vmProgress && (
-            <div className="mb-3 bg-gray-800 rounded-lg p-4 border border-gray-700">
+            <GlassCard className="mb-3">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-200">{vmProgress.step}</span>
-                <span className="text-xs text-gray-500">{vmProgress.pct}%</span>
+                <span className="text-sm text-slate-200">{vmProgress.step}</span>
+                <span className="text-xs text-slate-500">{vmProgress.pct}%</span>
               </div>
-              <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+              <div className="w-full h-2 bg-elevated rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all duration-500 ${vmProgress.pct === 100 ? "bg-green-500" : "bg-indigo-500"}`}
-                  style={{ width: `${vmProgress.pct}%` }}
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${vmProgress.pct}%`,
+                    background: vmProgress.pct === 100
+                      ? "linear-gradient(90deg, #22C55E, #06B6D4)"
+                      : "linear-gradient(90deg, #6366F1, #8B5CF6)",
+                  }}
                 />
               </div>
-            </div>
+            </GlassCard>
           )}
 
           {/* VM control bar */}
           {vmConfigured && !vmProgress && (
-            <div className="flex items-center gap-3 bg-gray-800 rounded-lg px-4 py-3 mb-2">
-              <span className={`w-2.5 h-2.5 rounded-full ${vmStatus === "running" ? "bg-green-500" : vmStatus === "staging" || vmStatus === "stopping" ? "bg-yellow-500 animate-pulse" : "bg-red-500"}`} />
-              <span className="text-sm text-gray-200 flex-1">
-                VM {vmStatus === "running" ? "encendida" : vmStatus === "terminated" || vmStatus === "stopped" ? "apagada" : vmStatus ?? "?"}
-              </span>
-              <div className="flex gap-2">
-                {vmStatus === "running" ? (
-                  <>
-                    <button onClick={() => vmAction("reset")} disabled={vmLoading} className="px-3 py-1 text-xs bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-600 rounded transition-colors">
-                      Reiniciar
-                    </button>
-                    <button onClick={() => vmAction("stop")} disabled={vmLoading} className="px-3 py-1 text-xs bg-red-700 hover:bg-red-600 disabled:bg-gray-600 rounded transition-colors">
-                      Apagar
-                    </button>
-                  </>
-                ) : vmStatus === "terminated" || vmStatus === "stopped" ? (
-                  <button onClick={() => vmAction("start")} disabled={vmLoading} className="px-3 py-1 text-xs bg-green-700 hover:bg-green-600 disabled:bg-gray-600 rounded transition-colors">
-                    Prender
-                  </button>
-                ) : null}
+            <GlassCard className="mb-3 !p-3">
+              <div className="flex items-center gap-3">
+                <span className={`w-2.5 h-2.5 rounded-full ${vmStatus === "running" ? "bg-green-400" : vmStatus === "staging" || vmStatus === "stopping" ? "bg-yellow-400 animate-pulse" : "bg-red-400"}`} />
+                <span className="text-sm text-slate-200 flex-1">
+                  VM {vmStatus === "running" ? "encendida" : vmStatus === "terminated" || vmStatus === "stopped" ? "apagada" : vmStatus ?? "?"}
+                </span>
+                <div className="flex gap-2">
+                  {vmStatus === "running" ? (
+                    <>
+                      <GlowButton onClick={() => vmAction("reset")} disabled={vmLoading} variant="secondary" size="sm">Reiniciar</GlowButton>
+                      <GlowButton onClick={() => vmAction("stop")} disabled={vmLoading} variant="danger" size="sm">Apagar</GlowButton>
+                    </>
+                  ) : vmStatus === "terminated" || vmStatus === "stopped" ? (
+                    <GlowButton onClick={() => vmAction("start")} disabled={vmLoading} variant="primary" size="sm">Prender</GlowButton>
+                  ) : null}
+                </div>
               </div>
-            </div>
+            </GlassCard>
           )}
 
           {/* Runner heartbeats */}
@@ -596,104 +550,101 @@ export function Dashboard() {
                 .sort((a, b) => new Date(b.last_seen_at).getTime() - new Date(a.last_seen_at).getTime())
                 .slice(0, 3)
                 .map((r) => (
-                  <div key={r.runner_id} className="flex items-center gap-3 bg-gray-800 rounded-lg px-4 py-2 text-sm">
-                    <span className={`w-2.5 h-2.5 rounded-full ${r.status === "online" ? "bg-green-500" : "bg-gray-600"}`} />
-                    <span className="flex-1 text-gray-200">{humanizeRunnerName(r.runner_id, r.meta?.hostname)}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded ${r.status === "online" ? "bg-green-900 text-green-400" : "bg-gray-700 text-gray-500"}`}>
-                      {humanizeRunnerStatus(r.status, r.last_seen_at)}
-                    </span>
-                  </div>
+                  <GlassCard key={r.runner_id} className="!p-3">
+                    <div className="flex items-center gap-3 text-sm">
+                      <span className={`w-2 h-2 rounded-full ${r.status === "online" ? "bg-green-400" : "bg-slate-600"}`} />
+                      <span className="flex-1 text-slate-200">{humanizeRunnerName(r.runner_id, r.meta?.hostname)}</span>
+                      <StatusPill status={r.status} label={humanizeRunnerStatus(r.status, r.last_seen_at)} />
+                    </div>
+                  </GlassCard>
                 ))}
             </div>
           )}
 
           {!vmConfigured && runners.length === 0 && (
-            <p className="text-sm text-gray-500">Sin agentes registrados.</p>
+            <p className="text-sm text-slate-500">Sin agentes registrados.</p>
           )}
-        </div>
-      </div>
+        </SectionBlock>
+      </PageContainer>
     );
   }
 
   // =====================
-  // TECHNICAL MODE (unchanged)
+  // TECHNICAL MODE
   // =====================
   return (
-    <div className="p-8 max-w-5xl">
-      <h2 className="text-2xl font-bold mb-6">Dashboard</h2>
+    <PageContainer maxWidth="xl">
+      <HeroPanel title="Dashboard" subtitle="System metrics and runner status" />
 
       {/* Stats grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard label={label("Tasks Ready")} value={metrics.tasks.ready} color="text-blue-400" />
-        <StatCard label={label("Tasks Running")} value={metrics.tasks.running} color="text-yellow-400" />
-        <StatCard label={label("Tasks Done")} value={metrics.tasks.done} color="text-green-400" />
-        <StatCard label={label("Tasks Failed")} value={metrics.tasks.failed} color={metrics.tasks.failed > 0 ? "text-red-400" : "text-gray-400"} />
-        <StatCard
-          label={label("Runners")}
-          value={`${onlineRunners.length} / ${runners.length}`}
-          color={onlineRunners.length > 0 ? "text-green-400" : "text-red-400"}
-          sub={onlineRunners.length > 0 ? "online" : "todos offline"}
-        />
-        <StatCard
-          label={label("Runs (24h)")}
-          value={metrics.runs.last_24h}
-          sub={metrics.runs.fails_last_24h > 0 ? `${metrics.runs.fails_last_24h} failed` : undefined}
-        />
-        <StatCard
-          label={label("Fail Rate")}
-          value={failRate != null ? `${(failRate * 100).toFixed(0)}%` : "-"}
-          color={failRate != null && failRate > 0.2 ? "text-red-400" : "text-green-400"}
-          sub="ultimos 20 runs"
-        />
-        <StatCard
-          label={label("Avg Duration")}
-          value={formatAge(metrics.runs.avg_ready_to_done_seconds_last_20)}
-          sub="ready → done"
-        />
-        <StatCard
-          label={label("Backlog Age")}
-          value={formatAge(metrics.backlog.oldest_ready_age_seconds)}
-          color={metrics.backlog.oldest_ready_age_seconds && metrics.backlog.oldest_ready_age_seconds > 86400 ? "text-yellow-400" : "text-gray-300"}
-          sub="task mas vieja"
-        />
-        <StatCard
-          label={label("Deduped")}
-          value={metrics.runs.deduped_total}
-          sub={metrics.runs.deduped_last_24h > 0 ? `${metrics.runs.deduped_last_24h} hoy` : undefined}
-          color="text-gray-400"
-        />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
+        <AnimatedFadeIn delay={0}><MetricCard label={label("Tasks Ready")} value={metrics.tasks.ready} color="text-blue-400" /></AnimatedFadeIn>
+        <AnimatedFadeIn delay={30}><MetricCard label={label("Tasks Running")} value={metrics.tasks.running} color="text-yellow-400" /></AnimatedFadeIn>
+        <AnimatedFadeIn delay={60}><MetricCard label={label("Tasks Done")} value={metrics.tasks.done} color="text-green-400" /></AnimatedFadeIn>
+        <AnimatedFadeIn delay={90}><MetricCard label={label("Tasks Failed")} value={metrics.tasks.failed} color={metrics.tasks.failed > 0 ? "text-red-400" : "text-slate-500"} /></AnimatedFadeIn>
+        <AnimatedFadeIn delay={120}>
+          <MetricCard
+            label={label("Runners")}
+            value={`${onlineRunners.length} / ${runners.length}`}
+            color={onlineRunners.length > 0 ? "text-green-400" : "text-red-400"}
+            sub={onlineRunners.length > 0 ? "online" : "todos offline"}
+          />
+        </AnimatedFadeIn>
+        <AnimatedFadeIn delay={150}>
+          <MetricCard
+            label={label("Runs (24h)")}
+            value={metrics.runs.last_24h}
+            sub={metrics.runs.fails_last_24h > 0 ? `${metrics.runs.fails_last_24h} failed` : undefined}
+          />
+        </AnimatedFadeIn>
+        <AnimatedFadeIn delay={180}>
+          <MetricCard
+            label={label("Fail Rate")}
+            value={failRate != null ? `${(failRate * 100).toFixed(0)}%` : "-"}
+            color={failRate != null && failRate > 0.2 ? "text-red-400" : "text-green-400"}
+            sub="ultimos 20 runs"
+          />
+        </AnimatedFadeIn>
+        <AnimatedFadeIn delay={210}><MetricCard label={label("Avg Duration")} value={formatAge(metrics.runs.avg_ready_to_done_seconds_last_20)} sub="ready -> done" /></AnimatedFadeIn>
+        <AnimatedFadeIn delay={240}>
+          <MetricCard
+            label={label("Backlog Age")}
+            value={formatAge(metrics.backlog.oldest_ready_age_seconds)}
+            color={metrics.backlog.oldest_ready_age_seconds && metrics.backlog.oldest_ready_age_seconds > 86400 ? "text-yellow-400" : "text-slate-300"}
+            sub="task mas vieja"
+          />
+        </AnimatedFadeIn>
+        <AnimatedFadeIn delay={270}>
+          <MetricCard label={label("Deduped")} value={metrics.runs.deduped_total} sub={metrics.runs.deduped_last_24h > 0 ? `${metrics.runs.deduped_last_24h} hoy` : undefined} color="text-slate-400" />
+        </AnimatedFadeIn>
       </div>
 
       {/* Runners detail */}
-      <div className="mb-8">
-        <h3 className="text-lg font-semibold mb-3">Runners</h3>
+      <SectionBlock title="Runners">
         {runners.length === 0 ? (
-          <p className="text-gray-500 text-sm">Sin runners registrados.</p>
+          <p className="text-slate-500 text-sm">Sin runners registrados.</p>
         ) : (
           <div className="space-y-2">
             {runners.map((r) => (
-              <div key={r.runner_id} className="flex items-center gap-3 bg-gray-800 rounded-lg px-4 py-2 text-sm">
-                <span className={`w-2.5 h-2.5 rounded-full ${r.status === "online" ? "bg-green-500" : "bg-gray-600"}`} />
-                <span className="font-mono text-gray-300 flex-1">{r.runner_id}</span>
-                {r.meta?.hostname && <span className="text-gray-500">{r.meta.hostname}</span>}
-                <span className="text-xs text-gray-500">
-                  {new Date(r.last_seen_at).toLocaleString("es-AR")}
-                </span>
-                <span className={`text-xs px-2 py-0.5 rounded uppercase ${r.status === "online" ? "bg-green-900 text-green-400" : "bg-gray-700 text-gray-500"}`}>
-                  {r.status}
-                </span>
-              </div>
+              <GlassCard key={r.runner_id} className="!p-3">
+                <div className="flex items-center gap-3 text-sm">
+                  <span className={`w-2 h-2 rounded-full ${r.status === "online" ? "bg-green-400" : "bg-slate-600"}`} />
+                  <span className="font-mono text-slate-300 flex-1">{r.runner_id}</span>
+                  {r.meta?.hostname && <span className="text-slate-500">{r.meta.hostname}</span>}
+                  <span className="text-xs text-slate-500">{new Date(r.last_seen_at).toLocaleString("es-AR")}</span>
+                  <StatusPill status={r.status} />
+                </div>
+              </GlassCard>
             ))}
           </div>
         )}
-      </div>
+      </SectionBlock>
 
-      {/* Last run */}
       {metrics.runs.last_run_at && (
-        <div className="text-xs text-gray-600">
+        <div className="text-xs text-slate-600 mt-4">
           Ultimo run: {new Date(metrics.runs.last_run_at).toLocaleString("es-AR")}
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 }

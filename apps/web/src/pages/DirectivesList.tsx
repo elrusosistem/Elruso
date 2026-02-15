@@ -4,6 +4,14 @@ import { DecisionsList } from "./DecisionsList";
 import { apiFetch } from "../api";
 import { useUiMode } from "../uiMode";
 import { humanizeDirectiveStatus } from "../humanize";
+import {
+  PageContainer,
+  GlassCard,
+  GlowButton,
+  StatusPill,
+  SectionBlock,
+  AnimatedFadeIn,
+} from "../ui2026";
 
 interface Risk {
   id: string;
@@ -66,13 +74,6 @@ interface ApplyResult {
   missing_requests: string[];
   idempotent: boolean;
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  PENDING_REVIEW: "bg-yellow-500",
-  APPROVED: "bg-blue-500",
-  APPLIED: "bg-green-500",
-  REJECTED: "bg-red-500",
-};
 
 const SEVERITY_COLORS: Record<string, string> = {
   low: "text-green-400",
@@ -204,23 +205,20 @@ export function DirectivesList() {
     }
   };
 
-  if (loading) return <div className="p-8 text-gray-400">{isOp ? "Cargando planes..." : "Cargando directivas..."}</div>;
-  if (error) return <div className="p-8 text-red-400">{error}</div>;
+  if (loading) return <PageContainer maxWidth="xl"><p className="text-slate-400">{isOp ? "Cargando planes..." : "Cargando directivas..."}</p></PageContainer>;
+  if (error) return <PageContainer maxWidth="xl"><p className="text-red-400">{error}</p></PageContainer>;
 
   const gptButton = (
     <div className="mb-6">
       <div className="flex items-center gap-4">
-        <button
+        <GlowButton
           onClick={runGpt}
           disabled={gptRunning || !canPlan}
-          className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-            gptRunning || !canPlan
-              ? "bg-gray-600 cursor-not-allowed text-gray-400"
-              : "bg-indigo-600 hover:bg-indigo-500 text-white"
-          }`}
+          variant="primary"
+          size="md"
         >
           {gptRunning ? "Generando..." : isOp ? "Generar nuevo plan (IA)" : "Run GPT"}
-        </button>
+        </GlowButton>
         {gptMessage && (
           <span
             className={`text-sm ${gptMessage.type === "ok" ? "text-green-400" : "text-red-400"}`}
@@ -233,18 +231,18 @@ export function DirectivesList() {
         <p className="text-xs text-yellow-400 mt-1">{planBlockReason}</p>
       )}
       {canPlan && isOp && !gptRunning && (
-        <p className="text-xs text-gray-500 mt-1">Esto crea un plan que requiere tu aprobacion.</p>
+        <p className="text-xs text-slate-500 mt-1">Esto crea un plan que requiere tu aprobacion.</p>
       )}
     </div>
   );
 
   if (directives.length === 0) {
     return (
-      <div className="p-8 text-gray-500">
+      <PageContainer maxWidth="xl">
         <h2 className="text-2xl font-bold mb-4 text-white">{isOp ? "Planes" : "Directivas"}</h2>
         {gptButton}
-        <p>{isOp ? "Sin planes pendientes." : "Sin directivas. Usa el boton \"Run GPT\" para generar."}</p>
-      </div>
+        <p className="text-slate-500">{isOp ? "Sin planes pendientes." : "Sin directivas. Usa el boton \"Run GPT\" para generar."}</p>
+      </PageContainer>
     );
   }
 
@@ -252,301 +250,295 @@ export function DirectivesList() {
   const payload = selectedDir?.payload_json;
 
   return (
-    <div className="p-8">
+    <PageContainer maxWidth="xl">
       <h2 className="text-2xl font-bold mb-4">{isOp ? "Planes" : "Directivas"}</h2>
       {gptButton}
       <div className="flex gap-6">
         {/* Lista */}
         <div className="w-1/3 space-y-2">
-          {directives.map((dir) => (
-            <button
-              key={dir.id}
-              onClick={() => setSelected(dir.id)}
-              className={`w-full text-left p-3 rounded-lg transition-colors ${
-                selected === dir.id ? "bg-gray-700" : "bg-gray-800 hover:bg-gray-750"
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <span className={`w-2 h-2 rounded-full ${STATUS_COLORS[dir.status]}`} />
-                {isOp ? (
-                  <span className="text-xs text-gray-400">
-                    {humanizeDirectiveStatus(dir.status)}
-                  </span>
-                ) : (
-                  <>
-                    <span className="font-medium text-sm">{dir.id}</span>
-                    <span className="text-xs text-gray-500">{dir.source}</span>
-                    {dir.payload_json && (
-                      <span className="text-xs px-1 bg-gray-700 rounded text-gray-400">
-                        {dir.directive_schema_version || "v1"}
-                      </span>
-                    )}
-                  </>
-                )}
-              </div>
-              <div className="text-sm truncate">
-                {dir.payload_json?.objective ?? dir.title}
-              </div>
-            </button>
+          {directives.map((dir, idx) => (
+            <AnimatedFadeIn key={dir.id} delay={idx * 40}>
+              <GlassCard
+                hover
+                glow={selected === dir.id ? "primary" : "none"}
+                onClick={() => setSelected(dir.id)}
+                className="!p-3"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <StatusPill status={dir.status} label={isOp ? humanizeDirectiveStatus(dir.status) : undefined} size="sm" />
+                  {!isOp && (
+                    <>
+                      <span className="font-medium text-sm">{dir.id}</span>
+                      <span className="text-xs text-slate-500">{dir.source}</span>
+                      {dir.payload_json && (
+                        <span className="text-xs px-1 bg-elevated rounded text-slate-400">
+                          {dir.directive_schema_version || "v1"}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+                <div className="text-sm truncate text-slate-200">
+                  {dir.payload_json?.objective ?? dir.title}
+                </div>
+              </GlassCard>
+            </AnimatedFadeIn>
           ))}
         </div>
 
         {/* Detalle */}
         <div className="flex-1">
           {selectedDir ? (
-            <div className="bg-gray-800 rounded-lg p-6 space-y-4">
-              {/* Header */}
-              <div className="flex items-center gap-3">
-                <span className={`w-3 h-3 rounded-full ${STATUS_COLORS[selectedDir.status]}`} />
-                <h3 className="text-lg font-semibold flex-1">
-                  {payload ? payload.objective : selectedDir.title}
-                </h3>
-                <span className="text-xs px-2 py-0.5 bg-gray-700 rounded uppercase">
-                  {isOp ? humanizeDirectiveStatus(selectedDir.status) : selectedDir.status}
-                </span>
-              </div>
-
-              {/* Context / Body */}
-              {(payload?.context_summary || selectedDir.body) && (
-                <div className="text-sm text-gray-300 whitespace-pre-wrap">
-                  {payload?.context_summary || selectedDir.body}
+            <AnimatedFadeIn>
+              <GlassCard className="space-y-4">
+                {/* Header */}
+                <div className="flex items-center gap-3">
+                  <h3 className="text-lg font-semibold flex-1">
+                    {payload ? payload.objective : selectedDir.title}
+                  </h3>
+                  <StatusPill
+                    status={selectedDir.status}
+                    label={isOp ? humanizeDirectiveStatus(selectedDir.status) : selectedDir.status}
+                  />
                 </div>
-              )}
 
-              {/* Estimated Impact */}
-              {payload?.estimated_impact && (
-                <div className="text-sm bg-gray-900 rounded p-3">
-                  <span className="text-gray-400 font-semibold">{isOp ? "Impacto esperado: " : "Impacto estimado: "}</span>
-                  <span className="text-gray-200">{payload.estimated_impact}</span>
-                </div>
-              )}
-
-              {/* Success Criteria */}
-              {payload?.success_criteria && payload.success_criteria.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-semibold mb-2 text-gray-400">
-                    {isOp ? "Criterios de exito" : "Criterios de exito"}
-                  </h4>
-                  <ul className="text-sm space-y-1">
-                    {payload.success_criteria.map((c, i) => (
-                      <li key={i} className="flex items-start gap-2">
-                        <span className="text-green-500 mt-0.5">✓</span>
-                        <span>{c}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Risks */}
-              {payload?.risks && payload.risks.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-semibold mb-2 text-gray-400">Riesgos</h4>
-                  <div className="space-y-1">
-                    {payload.risks.map((r) => (
-                      <div key={r.id} className="flex items-start gap-2 text-sm">
-                        <span className={`font-mono text-xs mt-0.5 ${SEVERITY_COLORS[r.severity]}`}>
-                          [{isOp ? SEVERITY_LABELS[r.severity] ?? r.severity.toUpperCase() : r.severity.toUpperCase()}]
-                        </span>
-                        <span>{r.text}</span>
-                      </div>
-                    ))}
+                {/* Context / Body */}
+                {(payload?.context_summary || selectedDir.body) && (
+                  <div className="text-sm text-slate-300 whitespace-pre-wrap">
+                    {payload?.context_summary || selectedDir.body}
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Tasks to create */}
-              {selectedDir.tasks_to_create.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-semibold mb-2 text-gray-400">
-                    {isOp ? `Tareas a crear (${selectedDir.tasks_to_create.length})` : `Tasks a crear (${selectedDir.tasks_to_create.length})`}
-                  </h4>
-                  {isOp ? (
+                {/* Estimated Impact */}
+                {payload?.estimated_impact && (
+                  <div className="text-sm bg-surface rounded-card p-3">
+                    <span className="text-slate-400 font-semibold">{isOp ? "Impacto esperado: " : "Impacto estimado: "}</span>
+                    <span className="text-slate-200">{payload.estimated_impact}</span>
+                  </div>
+                )}
+
+                {/* Success Criteria */}
+                {payload?.success_criteria && payload.success_criteria.length > 0 && (
+                  <SectionBlock title={isOp ? "Criterios de exito" : "Criterios de exito"}>
                     <ul className="text-sm space-y-1">
-                      {selectedDir.tasks_to_create.map((t, i) => (
+                      {payload.success_criteria.map((c, i) => (
                         <li key={i} className="flex items-start gap-2">
-                          <span className="text-gray-600 mt-0.5">-</span>
-                          <span>{t.title}</span>
+                          <span className="text-green-500 mt-0.5">✓</span>
+                          <span>{c}</span>
                         </li>
                       ))}
                     </ul>
-                  ) : (
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-gray-500 text-xs text-left">
-                          <th className="pb-1">ID</th>
-                          <th className="pb-1">Tipo</th>
-                          <th className="pb-1">Titulo</th>
-                          <th className="pb-1">Pri</th>
-                          <th className="pb-1">Deps</th>
-                        </tr>
-                      </thead>
-                      <tbody>
+                  </SectionBlock>
+                )}
+
+                {/* Risks */}
+                {payload?.risks && payload.risks.length > 0 && (
+                  <SectionBlock title="Riesgos">
+                    <div className="space-y-1">
+                      {payload.risks.map((r) => (
+                        <div key={r.id} className="flex items-start gap-2 text-sm">
+                          <span className={`font-mono text-xs mt-0.5 ${SEVERITY_COLORS[r.severity]}`}>
+                            [{isOp ? SEVERITY_LABELS[r.severity] ?? r.severity.toUpperCase() : r.severity.toUpperCase()}]
+                          </span>
+                          <span>{r.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </SectionBlock>
+                )}
+
+                {/* Tasks to create */}
+                {selectedDir.tasks_to_create.length > 0 && (
+                  <SectionBlock title={isOp ? `Tareas a crear (${selectedDir.tasks_to_create.length})` : `Tasks a crear (${selectedDir.tasks_to_create.length})`}>
+                    {isOp ? (
+                      <ul className="text-sm space-y-1">
                         {selectedDir.tasks_to_create.map((t, i) => (
-                          <tr key={i} className="border-t border-gray-700">
-                            <td className="py-1 font-mono text-xs text-gray-400">
-                              {t.task_id || `auto-${i + 1}`}
-                            </td>
-                            <td className="py-1 text-xs text-gray-500">
-                              {t.task_type || "-"}
-                            </td>
-                            <td className="py-1">{t.title}</td>
-                            <td className="py-1 text-center">{t.priority ?? "-"}</td>
-                            <td className="py-1 text-xs text-gray-500">
-                              {t.depends_on?.join(", ") || "-"}
-                            </td>
-                          </tr>
+                          <li key={i} className="flex items-start gap-2">
+                            <span className="text-slate-600 mt-0.5">-</span>
+                            <span>{t.title}</span>
+                          </li>
                         ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              )}
+                      </ul>
+                    ) : (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-slate-500 text-xs text-left">
+                            <th className="pb-1">ID</th>
+                            <th className="pb-1">Tipo</th>
+                            <th className="pb-1">Titulo</th>
+                            <th className="pb-1">Pri</th>
+                            <th className="pb-1">Deps</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedDir.tasks_to_create.map((t, i) => (
+                            <tr key={i} className="border-t border-[rgba(148,163,184,0.08)]">
+                              <td className="py-1 font-mono text-xs text-slate-400">
+                                {t.task_id || `auto-${i + 1}`}
+                              </td>
+                              <td className="py-1 text-xs text-slate-500">
+                                {t.task_type || "-"}
+                              </td>
+                              <td className="py-1">{t.title}</td>
+                              <td className="py-1 text-center">{t.priority ?? "-"}</td>
+                              <td className="py-1 text-xs text-slate-500">
+                                {t.depends_on?.join(", ") || "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </SectionBlock>
+                )}
 
-              {/* Required requests - operator: prominent warning */}
-              {payload?.required_requests && payload.required_requests.length > 0 && (
-                <div className={isOp ? "bg-yellow-900/30 border border-yellow-700 rounded p-3" : ""}>
-                  <h4 className={`text-sm font-semibold mb-2 ${isOp ? "text-yellow-300" : "text-gray-400"}`}>
-                    {isOp ? "Faltan datos para ejecutar" : "Requests requeridas"}
-                  </h4>
-                  <ul className="text-sm space-y-1">
-                    {payload.required_requests.map((r) => (
-                      <li key={r.request_id} className="flex items-start gap-2">
-                        <span className="font-mono text-xs text-yellow-400">{r.request_id}</span>
-                        <span className="text-gray-300">{r.reason}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  {isOp && (
-                    <a href="#/requests" className="text-xs text-blue-400 hover:underline mt-2 inline-block">
-                      Ir a Configuracion →
-                    </a>
-                  )}
-                </div>
-              )}
-
-              {/* Apply notes */}
-              {payload?.apply_notes && (
-                <div className="text-sm text-gray-400 italic border-l-2 border-gray-600 pl-3">
-                  {payload.apply_notes}
-                </div>
-              )}
-
-              {/* Acceptance criteria (legacy) */}
-              {!payload && selectedDir.acceptance_criteria.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-semibold mb-2 text-gray-400">Criterios de aceptacion</h4>
-                  <ul className="text-sm space-y-1">
-                    {selectedDir.acceptance_criteria.map((c, i) => (
-                      <li key={i} className="flex items-start gap-2">
-                        <span className="text-gray-600 mt-0.5">-</span>
-                        <span>{c}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Botones PENDING_REVIEW */}
-              {selectedDir.status === "PENDING_REVIEW" && (
-                <div className="flex gap-2 pt-4 border-t border-gray-700">
-                  <button
-                    onClick={async () => {
-                      if (isOp) {
-                        // Operator: approve + apply in one click
-                        await updateStatus(selectedDir.id, "APPROVED");
-                        await applyDirective(selectedDir.id);
-                      } else {
-                        updateStatus(selectedDir.id, "APPROVED");
-                      }
-                    }}
-                    className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded text-sm transition-colors"
-                  >
-                    {isOp ? "Aprobar y ejecutar" : "Aprobar"}
-                  </button>
-                  <button
-                    onClick={() => {
-                      const reason = prompt("Razon de rechazo:");
-                      if (reason !== null) updateStatus(selectedDir.id, "REJECTED", reason);
-                    }}
-                    className="px-4 py-2 bg-red-700 hover:bg-red-600 rounded text-sm transition-colors"
-                  >
-                    Rechazar
-                  </button>
-                </div>
-              )}
-
-              {/* Botón APPROVED → Apply (solo modo tecnico) */}
-              {selectedDir.status === "APPROVED" && !isOp && (
-                <div className="pt-4 border-t border-gray-700">
-                  <div className="mb-3 text-sm text-yellow-400">
-                    Aplicar creara {selectedDir.tasks_to_create.length} task(s) ejecutables.
-                    {payload?.required_requests && payload.required_requests.length > 0 && (
-                      <> Requiere: {payload.required_requests.map((r) => r.request_id).join(", ")}.</>
+                {/* Required requests - operator: prominent warning */}
+                {payload?.required_requests && payload.required_requests.length > 0 && (
+                  <div className={isOp ? "bg-yellow-900/30 border border-yellow-700 rounded-card p-3" : ""}>
+                    <h4 className={`text-sm font-semibold mb-2 ${isOp ? "text-yellow-300" : "text-slate-400"}`}>
+                      {isOp ? "Faltan datos para ejecutar" : "Requests requeridas"}
+                    </h4>
+                    <ul className="text-sm space-y-1">
+                      {payload.required_requests.map((r) => (
+                        <li key={r.request_id} className="flex items-start gap-2">
+                          <span className="font-mono text-xs text-yellow-400">{r.request_id}</span>
+                          <span className="text-slate-300">{r.reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {isOp && (
+                      <a href="#/requests" className="text-xs text-blue-400 hover:underline mt-2 inline-block">
+                        Ir a Configuracion →
+                      </a>
                     )}
                   </div>
-                  <button
-                    onClick={() => applyDirective(selectedDir.id)}
-                    className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded text-sm transition-colors"
-                  >
-                    Aplicar y Crear Tasks
-                  </button>
-                </div>
-              )}
-
-              {/* Operator: APPROVED state — show confirmation, no extra button */}
-              {selectedDir.status === "APPROVED" && isOp && (
-                <div className="pt-4 border-t border-gray-700">
-                  <p className="text-sm text-green-400">Plan aprobado. Las tareas se estan creando.</p>
-                </div>
-              )}
-
-              {/* Decisions asociadas */}
-              {!isOp && (
-                <div className="pt-4 border-t border-gray-700">
-                  <h4 className="text-sm font-semibold mb-2 text-gray-400">Decisions</h4>
-                  <DecisionsList filterDirectiveId={selectedDir.id} />
-                </div>
-              )}
-
-              {/* Meta */}
-              <div className="text-xs text-gray-600 pt-2">
-                {isOp ? (
-                  <>
-                    Creado: {new Date(selectedDir.created_at).toLocaleString("es-AR")}
-                    {selectedDir.applied_at && (
-                      <> | Aplicado: {new Date(selectedDir.applied_at).toLocaleString("es-AR")}</>
-                    )}
-                    {selectedDir.rejection_reason && (
-                      <> | Motivo: {selectedDir.rejection_reason}</>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    Creada: {new Date(selectedDir.created_at).toLocaleString("es-AR")}
-                    {selectedDir.applied_at && (
-                      <> | Aplicada: {new Date(selectedDir.applied_at).toLocaleString("es-AR")}</>
-                    )}
-                    {selectedDir.rejection_reason && (
-                      <> | Razon: {selectedDir.rejection_reason}</>
-                    )}
-                    {selectedDir.payload_hash && (
-                      <> | Hash: {selectedDir.payload_hash.substring(0, 12)}...</>
-                    )}
-                    {selectedDir.directive_schema_version && (
-                      <> | Schema: {selectedDir.directive_schema_version}</>
-                    )}
-                  </>
                 )}
-              </div>
-            </div>
+
+                {/* Apply notes */}
+                {payload?.apply_notes && (
+                  <div className="text-sm text-slate-400 italic border-l-2 border-slate-600 pl-3">
+                    {payload.apply_notes}
+                  </div>
+                )}
+
+                {/* Acceptance criteria (legacy) */}
+                {!payload && selectedDir.acceptance_criteria.length > 0 && (
+                  <SectionBlock title="Criterios de aceptacion">
+                    <ul className="text-sm space-y-1">
+                      {selectedDir.acceptance_criteria.map((c, i) => (
+                        <li key={i} className="flex items-start gap-2">
+                          <span className="text-slate-600 mt-0.5">-</span>
+                          <span>{c}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </SectionBlock>
+                )}
+
+                {/* Botones PENDING_REVIEW */}
+                {selectedDir.status === "PENDING_REVIEW" && (
+                  <div className="flex gap-2 pt-4 border-t border-[rgba(148,163,184,0.08)]">
+                    <GlowButton
+                      variant="primary"
+                      size="sm"
+                      onClick={async () => {
+                        if (isOp) {
+                          // Operator: approve + apply in one click
+                          await updateStatus(selectedDir.id, "APPROVED");
+                          await applyDirective(selectedDir.id);
+                        } else {
+                          updateStatus(selectedDir.id, "APPROVED");
+                        }
+                      }}
+                    >
+                      {isOp ? "Aprobar y ejecutar" : "Aprobar"}
+                    </GlowButton>
+                    <GlowButton
+                      variant="danger"
+                      size="sm"
+                      onClick={() => {
+                        const reason = prompt("Razon de rechazo:");
+                        if (reason !== null) updateStatus(selectedDir.id, "REJECTED", reason);
+                      }}
+                    >
+                      Rechazar
+                    </GlowButton>
+                  </div>
+                )}
+
+                {/* Boton APPROVED → Apply (solo modo tecnico) */}
+                {selectedDir.status === "APPROVED" && !isOp && (
+                  <div className="pt-4 border-t border-[rgba(148,163,184,0.08)]">
+                    <div className="mb-3 text-sm text-yellow-400">
+                      Aplicar creara {selectedDir.tasks_to_create.length} task(s) ejecutables.
+                      {payload?.required_requests && payload.required_requests.length > 0 && (
+                        <> Requiere: {payload.required_requests.map((r) => r.request_id).join(", ")}.</>
+                      )}
+                    </div>
+                    <GlowButton
+                      variant="primary"
+                      size="sm"
+                      onClick={() => applyDirective(selectedDir.id)}
+                    >
+                      Aplicar y Crear Tasks
+                    </GlowButton>
+                  </div>
+                )}
+
+                {/* Operator: APPROVED state — show confirmation, no extra button */}
+                {selectedDir.status === "APPROVED" && isOp && (
+                  <div className="pt-4 border-t border-[rgba(148,163,184,0.08)]">
+                    <p className="text-sm text-green-400">Plan aprobado. Las tareas se estan creando.</p>
+                  </div>
+                )}
+
+                {/* Decisions asociadas */}
+                {!isOp && (
+                  <div className="pt-4 border-t border-[rgba(148,163,184,0.08)]">
+                    <h4 className="text-sm font-semibold mb-2 text-slate-400">Decisions</h4>
+                    <DecisionsList filterDirectiveId={selectedDir.id} />
+                  </div>
+                )}
+
+                {/* Meta */}
+                <div className="text-xs text-slate-600 pt-2">
+                  {isOp ? (
+                    <>
+                      Creado: {new Date(selectedDir.created_at).toLocaleString("es-AR")}
+                      {selectedDir.applied_at && (
+                        <> | Aplicado: {new Date(selectedDir.applied_at).toLocaleString("es-AR")}</>
+                      )}
+                      {selectedDir.rejection_reason && (
+                        <> | Motivo: {selectedDir.rejection_reason}</>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      Creada: {new Date(selectedDir.created_at).toLocaleString("es-AR")}
+                      {selectedDir.applied_at && (
+                        <> | Aplicada: {new Date(selectedDir.applied_at).toLocaleString("es-AR")}</>
+                      )}
+                      {selectedDir.rejection_reason && (
+                        <> | Razon: {selectedDir.rejection_reason}</>
+                      )}
+                      {selectedDir.payload_hash && (
+                        <> | Hash: {selectedDir.payload_hash.substring(0, 12)}...</>
+                      )}
+                      {selectedDir.directive_schema_version && (
+                        <> | Schema: {selectedDir.directive_schema_version}</>
+                      )}
+                    </>
+                  )}
+                </div>
+              </GlassCard>
+            </AnimatedFadeIn>
           ) : (
-            <div className="text-gray-500 text-sm">
+            <div className="text-slate-500 text-sm">
               {isOp ? "Selecciona un plan para ver los detalles." : "Seleccionar una directiva para ver detalle."}
             </div>
           )}
         </div>
       </div>
-    </div>
+    </PageContainer>
   );
 }

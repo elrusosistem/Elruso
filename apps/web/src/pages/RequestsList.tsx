@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import type { ApiResponse, OpsRequest, RequestStatus } from "@elruso/types";
 import { apiFetch } from "../api";
 import { useUiMode } from "../uiMode";
-
-const STATUS_COLORS: Record<string, string> = {
-  WAITING: "bg-yellow-500",
-  PROVIDED: "bg-green-500",
-  REJECTED: "bg-red-500",
-  MISSING: "bg-red-500",
-};
+import {
+  PageContainer,
+  GlassCard,
+  GlowButton,
+  StatusPill,
+  SectionBlock,
+  AnimatedFadeIn,
+} from "../ui2026";
 
 interface ValueInputs {
   [requestId: string]: { [scope: string]: string };
@@ -137,8 +138,8 @@ export function RequestsList() {
     }
   };
 
-  if (loading) return <div className="p-8 text-gray-400">{isOp ? "Cargando configuracion..." : "Cargando requests..."}</div>;
-  if (error) return <div className="p-8 text-red-400">{error}</div>;
+  if (loading) return <PageContainer maxWidth="lg"><p className="text-slate-400">{isOp ? "Cargando configuracion..." : "Cargando requests..."}</p></PageContainer>;
+  if (error) return <PageContainer maxWidth="lg"><p className="text-red-400">{error}</p></PageContainer>;
 
   // Split into pending and provided for operator mode
   const requiredForPlanning = requests.filter(
@@ -154,311 +155,324 @@ export function RequestsList() {
 
   if (isOp) {
     return (
-      <div className="p-8">
+      <PageContainer maxWidth="lg">
         <h2 className="text-2xl font-bold mb-2">Configuracion</h2>
-        <p className="text-sm text-gray-400 mb-6">
+        <p className="text-sm text-slate-400 mb-6">
           Datos que el sistema necesita para funcionar. Los valores se guardan de forma segura.
         </p>
 
         {message && (
-          <div className="mb-4 p-3 bg-blue-900/50 border border-blue-700 rounded text-sm text-blue-200">
+          <div className="mb-4 p-3 bg-blue-900/50 border border-blue-700 rounded-card text-sm text-blue-200">
             {message}
           </div>
         )}
 
         {/* Required for planning section */}
         {requiredForPlanning.length > 0 && (
-          <div className="mb-8">
-            <h3 className="text-lg font-semibold mb-3 text-orange-400">Requeridos para generar plan</h3>
-            <p className="text-sm text-gray-400 mb-4">Sin estos datos el sistema no puede generar planes.</p>
+          <SectionBlock title="Requeridos para generar plan" subtitle="Sin estos datos el sistema no puede generar planes.">
             <div className="space-y-4">
-              {requiredForPlanning.map((req) => (
-                <div key={req.id} className="bg-gray-800 rounded-lg p-4 border-l-4 border-orange-500">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`w-2 h-2 rounded-full ${STATUS_COLORS[req.status] ?? "bg-gray-500"}`} />
-                    <span className="font-medium">{req.purpose}</span>
-                    <span className="text-xs px-2 py-0.5 bg-gray-700 rounded">{req.service}</span>
-                    <span className="text-xs px-2 py-0.5 bg-orange-900 text-orange-300 rounded">Requerido</span>
-                  </div>
-                  {req.type !== "tool" ? (
-                    <div className="mt-3">
-                      <div className="space-y-2">
-                        {req.scopes.map((scope) => (
-                          <div key={scope} className="flex items-center gap-2">
-                            <label className="text-xs text-gray-400 w-48 flex-shrink-0">{scope}</label>
-                            <input
-                              type="password"
-                              placeholder={`Pegar ${scope}...`}
-                              value={valueInputs[req.id]?.[scope] ?? ""}
-                              onChange={(e) => handleInputChange(req.id, scope, e.target.value)}
-                              className="flex-1 text-xs bg-gray-900 border border-gray-600 rounded px-2 py-1.5 text-gray-200 placeholder-gray-600 focus:border-blue-500 focus:outline-none"
-                            />
-                          </div>
-                        ))}
+              {requiredForPlanning.map((req, idx) => (
+                <AnimatedFadeIn key={req.id} delay={idx * 60}>
+                  <GlassCard className="border-l-4 border-orange-500 !rounded-l-none">
+                    <div className="flex items-center gap-2 mb-1">
+                      <StatusPill status={req.status} size="sm" />
+                      <span className="font-medium">{req.purpose}</span>
+                      <span className="text-xs px-2 py-0.5 bg-elevated rounded">{req.service}</span>
+                      <span className="text-xs px-2 py-0.5 bg-orange-900 text-orange-300 rounded">Requerido</span>
+                    </div>
+                    {req.type !== "tool" ? (
+                      <div className="mt-3">
+                        <div className="space-y-2">
+                          {req.scopes.map((scope) => (
+                            <div key={scope} className="flex items-center gap-2">
+                              <label className="text-xs text-slate-400 w-48 flex-shrink-0">{scope}</label>
+                              <input
+                                type="password"
+                                placeholder={`Pegar ${scope}...`}
+                                value={valueInputs[req.id]?.[scope] ?? ""}
+                                onChange={(e) => handleInputChange(req.id, scope, e.target.value)}
+                                className="flex-1 text-xs bg-elevated border border-[rgba(148,163,184,0.08)] rounded-card px-2 py-1.5 text-slate-200 placeholder-slate-600 focus:border-blue-500 focus:outline-none"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex gap-2 mt-3">
+                          <GlowButton
+                            onClick={() => saveValues(req)}
+                            disabled={saving === req.id}
+                            variant="primary"
+                            size="sm"
+                          >
+                            {saving === req.id ? "Guardando..." : "Configurar"}
+                          </GlowButton>
+                        </div>
                       </div>
-                      <div className="flex gap-2 mt-3">
-                        <button
-                          onClick={() => saveValues(req)}
-                          disabled={saving === req.id}
-                          className="text-xs px-4 py-1.5 bg-green-700 hover:bg-green-600 disabled:bg-gray-600 rounded transition-colors"
+                    ) : (
+                      <div className="mt-3">
+                        <GlowButton
+                          onClick={() => updateStatus(req.id, "PROVIDED")}
+                          variant="primary"
+                          size="sm"
                         >
-                          {saving === req.id ? "Guardando..." : "Configurar"}
-                        </button>
+                          Marcar como instalado
+                        </GlowButton>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="mt-3">
-                      <button
-                        onClick={() => updateStatus(req.id, "PROVIDED")}
-                        className="text-xs px-4 py-1.5 bg-green-700 hover:bg-green-600 rounded transition-colors"
-                      >
-                        Marcar como instalado
-                      </button>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </GlassCard>
+                </AnimatedFadeIn>
               ))}
             </div>
-          </div>
+          </SectionBlock>
         )}
 
         {/* Pending / Missing section */}
         {pending.length > 0 && (
-          <div className="mb-8">
-            <h3 className="text-lg font-semibold mb-3 text-yellow-400">Faltan configurar</h3>
-            <p className="text-sm text-gray-400 mb-4">Sin esto el sistema no puede avanzar.</p>
+          <SectionBlock title="Faltan configurar" subtitle="Sin esto el sistema no puede avanzar.">
             <div className="space-y-4">
-              {pending.map((req) => (
-                <div key={req.id} className="bg-gray-800 rounded-lg p-4 border-l-4 border-yellow-500">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`w-2 h-2 rounded-full ${STATUS_COLORS[req.status] ?? "bg-gray-500"}`} />
-                    <span className="font-medium">{req.purpose}</span>
-                    <span className="text-xs px-2 py-0.5 bg-gray-700 rounded">{req.service}</span>
-                  </div>
+              {pending.map((req, idx) => (
+                <AnimatedFadeIn key={req.id} delay={idx * 60}>
+                  <GlassCard className="border-l-4 border-yellow-500 !rounded-l-none">
+                    <div className="flex items-center gap-2 mb-1">
+                      <StatusPill status={req.status} size="sm" />
+                      <span className="font-medium">{req.purpose}</span>
+                      <span className="text-xs px-2 py-0.5 bg-elevated rounded">{req.service}</span>
+                    </div>
 
-                  {req.type !== "tool" ? (
-                    <div className="mt-3">
-                      <div className="space-y-2">
-                        {req.scopes.map((scope) => (
-                          <div key={scope} className="flex items-center gap-2">
-                            <label className="text-xs text-gray-400 w-48 flex-shrink-0">{scope}</label>
-                            <input
-                              type="password"
-                              placeholder={`Pegar ${scope}...`}
-                              value={valueInputs[req.id]?.[scope] ?? ""}
-                              onChange={(e) => handleInputChange(req.id, scope, e.target.value)}
-                              className="flex-1 text-xs bg-gray-900 border border-gray-600 rounded px-2 py-1.5 text-gray-200 placeholder-gray-600 focus:border-blue-500 focus:outline-none"
-                            />
-                          </div>
-                        ))}
+                    {req.type !== "tool" ? (
+                      <div className="mt-3">
+                        <div className="space-y-2">
+                          {req.scopes.map((scope) => (
+                            <div key={scope} className="flex items-center gap-2">
+                              <label className="text-xs text-slate-400 w-48 flex-shrink-0">{scope}</label>
+                              <input
+                                type="password"
+                                placeholder={`Pegar ${scope}...`}
+                                value={valueInputs[req.id]?.[scope] ?? ""}
+                                onChange={(e) => handleInputChange(req.id, scope, e.target.value)}
+                                className="flex-1 text-xs bg-elevated border border-[rgba(148,163,184,0.08)] rounded-card px-2 py-1.5 text-slate-200 placeholder-slate-600 focus:border-blue-500 focus:outline-none"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex gap-2 mt-3">
+                          <GlowButton
+                            onClick={() => saveValues(req)}
+                            disabled={saving === req.id}
+                            variant="primary"
+                            size="sm"
+                          >
+                            {saving === req.id ? "Guardando..." : "Configurar"}
+                          </GlowButton>
+                        </div>
                       </div>
-                      <div className="flex gap-2 mt-3">
-                        <button
-                          onClick={() => saveValues(req)}
-                          disabled={saving === req.id}
-                          className="text-xs px-4 py-1.5 bg-green-700 hover:bg-green-600 disabled:bg-gray-600 rounded transition-colors"
+                    ) : (
+                      <div className="mt-3">
+                        <p className="text-xs text-slate-400 mb-2">
+                          Herramienta que debe instalarse manualmente.
+                        </p>
+                        <GlowButton
+                          onClick={() => updateStatus(req.id, "PROVIDED")}
+                          variant="primary"
+                          size="sm"
                         >
-                          {saving === req.id ? "Guardando..." : "Configurar"}
-                        </button>
+                          Marcar como instalado
+                        </GlowButton>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="mt-3">
-                      <p className="text-xs text-gray-400 mb-2">
-                        Herramienta que debe instalarse manualmente.
-                      </p>
-                      <button
-                        onClick={() => updateStatus(req.id, "PROVIDED")}
-                        className="text-xs px-4 py-1.5 bg-green-700 hover:bg-green-600 rounded transition-colors"
-                      >
-                        Marcar como instalado
-                      </button>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </GlassCard>
+                </AnimatedFadeIn>
               ))}
             </div>
-          </div>
+          </SectionBlock>
         )}
 
         {/* Provided section */}
         {provided.length > 0 && (
-          <div className="mb-8">
-            <h3 className="text-lg font-semibold mb-3 text-green-400">Configuradas</h3>
+          <SectionBlock title="Configuradas">
             <div className="space-y-2">
-              {provided.map((req) => (
-                <div key={req.id} className="bg-gray-800 rounded-lg p-4">
-                  <div className="flex items-center gap-3">
-                    <span className="w-2 h-2 rounded-full bg-green-500" />
-                    <span className="flex-1">{req.purpose}</span>
-                    <span className="text-xs px-2 py-0.5 bg-gray-700 rounded">{req.service}</span>
-                    {valueStatuses[req.id] && (
-                      <span className="text-xs px-2 py-0.5 bg-green-900 text-green-300 rounded">OK</span>
-                    )}
-                    {(req.service === "tiendanube" || req.service === "waba") && valueStatuses[req.id] && (
-                      <button
-                        onClick={() => validateRequest(req.id)}
-                        disabled={validating === req.id}
-                        className="text-xs px-3 py-1 bg-blue-700 hover:bg-blue-600 disabled:bg-gray-600 rounded transition-colors"
+              {provided.map((req, idx) => (
+                <AnimatedFadeIn key={req.id} delay={idx * 40}>
+                  <GlassCard className="border-l-4 border-green-500 !rounded-l-none">
+                    <div className="flex items-center gap-3">
+                      <StatusPill status="PROVIDED" size="sm" />
+                      <span className="flex-1">{req.purpose}</span>
+                      <span className="text-xs px-2 py-0.5 bg-elevated rounded">{req.service}</span>
+                      {valueStatuses[req.id] && (
+                        <StatusPill status="PROVIDED" label="OK" size="sm" />
+                      )}
+                      {(req.service === "tiendanube" || req.service === "waba") && valueStatuses[req.id] && (
+                        <GlowButton
+                          onClick={() => validateRequest(req.id)}
+                          disabled={validating === req.id}
+                          variant="secondary"
+                          size="sm"
+                        >
+                          {validating === req.id ? "Probando..." : "Probar"}
+                        </GlowButton>
+                      )}
+                      <GlowButton
+                        onClick={() => updateStatus(req.id, "WAITING")}
+                        variant="ghost"
+                        size="sm"
                       >
-                        {validating === req.id ? "Probando..." : "Probar"}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => updateStatus(req.id, "WAITING")}
-                      className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-                    >
-                      Reconfigurar
-                    </button>
-                  </div>
-                  {validationResults[req.id] && (
-                    <div className="mt-2 ml-5">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded ${
-                          validationResults[req.id]!.ok
-                            ? "bg-green-900 text-green-300"
-                            : "bg-red-900 text-red-300"
-                        }`}
-                      >
-                        {validationResults[req.id]!.message}
-                      </span>
+                        Reconfigurar
+                      </GlowButton>
                     </div>
-                  )}
-                </div>
+                    {validationResults[req.id] && (
+                      <div className="mt-2 ml-5">
+                        <StatusPill
+                          status={validationResults[req.id]!.ok ? "PROVIDED" : "REJECTED"}
+                          label={validationResults[req.id]!.message}
+                          size="sm"
+                        />
+                      </div>
+                    )}
+                  </GlassCard>
+                </AnimatedFadeIn>
               ))}
             </div>
-          </div>
+          </SectionBlock>
         )}
 
         {/* Rejected section */}
         {rejected.length > 0 && (
-          <div>
-            <h3 className="text-lg font-semibold mb-3 text-red-400">Rechazadas</h3>
+          <SectionBlock title="Rechazadas">
             <div className="space-y-2">
-              {rejected.map((req) => (
-                <div key={req.id} className="bg-gray-800 rounded-lg p-4 flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-red-500" />
-                  <span className="flex-1">{req.purpose}</span>
-                  <button
-                    onClick={() => updateStatus(req.id, "WAITING")}
-                    className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-                  >
-                    Reconfigurar
-                  </button>
-                </div>
+              {rejected.map((req, idx) => (
+                <AnimatedFadeIn key={req.id} delay={idx * 40}>
+                  <GlassCard className="!p-4">
+                    <div className="flex items-center gap-3">
+                      <StatusPill status="REJECTED" size="sm" />
+                      <span className="flex-1">{req.purpose}</span>
+                      <GlowButton
+                        onClick={() => updateStatus(req.id, "WAITING")}
+                        variant="ghost"
+                        size="sm"
+                      >
+                        Reconfigurar
+                      </GlowButton>
+                    </div>
+                  </GlassCard>
+                </AnimatedFadeIn>
               ))}
             </div>
-          </div>
+          </SectionBlock>
         )}
 
         {requests.length === 0 && (
-          <p className="text-gray-500">Todo configurado. No se necesitan datos adicionales.</p>
+          <p className="text-slate-500">Todo configurado. No se necesitan datos adicionales.</p>
         )}
-      </div>
+      </PageContainer>
     );
   }
 
   // Technical mode: original layout
   return (
-    <div className="p-8">
+    <PageContainer maxWidth="lg">
       <h2 className="text-2xl font-bold mb-2">Requests</h2>
-      <p className="text-sm text-gray-400 mb-6">
+      <p className="text-sm text-slate-400 mb-6">
         Pegar valores de credentials/tokens. Se guardan en vault local (nunca en git).
       </p>
 
       {message && (
-        <div className="mb-4 p-3 bg-blue-900/50 border border-blue-700 rounded text-sm text-blue-200">
+        <div className="mb-4 p-3 bg-blue-900/50 border border-blue-700 rounded-card text-sm text-blue-200">
           {message}
         </div>
       )}
 
       <div className="space-y-4">
-        {requests.map((req) => (
-          <div key={req.id} className="bg-gray-800 rounded-lg p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`w-2 h-2 rounded-full ${STATUS_COLORS[req.status] ?? "bg-gray-500"}`} />
-                  <span className="font-medium">{req.id}</span>
-                  <span className="text-xs px-2 py-0.5 bg-gray-700 rounded">{req.service}</span>
-                  {valueStatuses[req.id] && (
-                    <span className="text-xs px-2 py-0.5 bg-green-900 text-green-300 rounded">vault ok</span>
+        {requests.map((req, idx) => (
+          <AnimatedFadeIn key={req.id} delay={idx * 50}>
+            <GlassCard>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <StatusPill status={req.status} size="sm" />
+                    <span className="font-medium">{req.id}</span>
+                    <span className="text-xs px-2 py-0.5 bg-elevated rounded">{req.service}</span>
+                    {valueStatuses[req.id] && (
+                      <StatusPill status="PROVIDED" label="vault ok" size="sm" />
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-300 mb-1">{req.purpose}</p>
+                  <div className="text-xs text-slate-500">
+                    <span>Scopes: {req.scopes.join(", ")}</span>
+                    <span className="mx-2">|</span>
+                    <span>Set en: {req.where_to_set}</span>
+                  </div>
+                  {req.validation_cmd && (
+                    <code className="text-xs text-slate-500 block mt-1">$ {req.validation_cmd}</code>
                   )}
                 </div>
-                <p className="text-sm text-gray-300 mb-1">{req.purpose}</p>
-                <div className="text-xs text-gray-500">
-                  <span>Scopes: {req.scopes.join(", ")}</span>
-                  <span className="mx-2">|</span>
-                  <span>Set en: {req.where_to_set}</span>
+                <div className="flex gap-2 flex-shrink-0">
+                  {req.status !== "WAITING" && (
+                    <GlowButton
+                      onClick={() => updateStatus(req.id, "WAITING")}
+                      variant="ghost"
+                      size="sm"
+                    >
+                      Reset
+                    </GlowButton>
+                  )}
                 </div>
-                {req.validation_cmd && (
-                  <code className="text-xs text-gray-500 block mt-1">$ {req.validation_cmd}</code>
-                )}
               </div>
-              <div className="flex gap-2 flex-shrink-0">
-                {req.status !== "WAITING" && (
-                  <button
-                    onClick={() => updateStatus(req.id, "WAITING")}
-                    className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
-            </div>
 
-            {req.status === "WAITING" && req.type !== "tool" && (
-              <div className="mt-3 pt-3 border-t border-gray-700">
-                <div className="space-y-2">
-                  {req.scopes.map((scope) => (
-                    <div key={scope} className="flex items-center gap-2">
-                      <label className="text-xs text-gray-400 w-48 flex-shrink-0 font-mono">{scope}</label>
-                      <input
-                        type="password"
-                        placeholder={`Pegar ${scope}...`}
-                        value={valueInputs[req.id]?.[scope] ?? ""}
-                        onChange={(e) => handleInputChange(req.id, scope, e.target.value)}
-                        className="flex-1 text-xs bg-gray-900 border border-gray-600 rounded px-2 py-1.5 text-gray-200 placeholder-gray-600 focus:border-blue-500 focus:outline-none"
-                      />
-                    </div>
-                  ))}
+              {req.status === "WAITING" && req.type !== "tool" && (
+                <div className="mt-3 pt-3 border-t border-[rgba(148,163,184,0.08)]">
+                  <div className="space-y-2">
+                    {req.scopes.map((scope) => (
+                      <div key={scope} className="flex items-center gap-2">
+                        <label className="text-xs text-slate-400 w-48 flex-shrink-0 font-mono">{scope}</label>
+                        <input
+                          type="password"
+                          placeholder={`Pegar ${scope}...`}
+                          value={valueInputs[req.id]?.[scope] ?? ""}
+                          onChange={(e) => handleInputChange(req.id, scope, e.target.value)}
+                          className="flex-1 text-xs bg-elevated border border-[rgba(148,163,184,0.08)] rounded-card px-2 py-1.5 text-slate-200 placeholder-slate-600 focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2 mt-3">
+                    <GlowButton
+                      onClick={() => saveValues(req)}
+                      disabled={saving === req.id}
+                      variant="primary"
+                      size="sm"
+                    >
+                      {saving === req.id ? "Guardando..." : "Guardar"}
+                    </GlowButton>
+                    <GlowButton
+                      onClick={() => updateStatus(req.id, "REJECTED")}
+                      variant="danger"
+                      size="sm"
+                    >
+                      Rechazar
+                    </GlowButton>
+                  </div>
                 </div>
-                <div className="flex gap-2 mt-3">
-                  <button
-                    onClick={() => saveValues(req)}
-                    disabled={saving === req.id}
-                    className="text-xs px-4 py-1.5 bg-green-700 hover:bg-green-600 disabled:bg-gray-600 rounded transition-colors"
-                  >
-                    {saving === req.id ? "Guardando..." : "Guardar"}
-                  </button>
-                  <button
-                    onClick={() => updateStatus(req.id, "REJECTED")}
-                    className="text-xs px-3 py-1.5 bg-red-700 hover:bg-red-600 rounded transition-colors"
-                  >
-                    Rechazar
-                  </button>
-                </div>
-              </div>
-            )}
+              )}
 
-            {req.status === "WAITING" && req.type === "tool" && (
-              <div className="mt-3 pt-3 border-t border-gray-700">
-                <p className="text-xs text-gray-400 mb-2">
-                  Herramienta local. Instalar manualmente y luego marcar como provided:
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => updateStatus(req.id, "PROVIDED")}
-                    className="text-xs px-4 py-1.5 bg-green-700 hover:bg-green-600 rounded transition-colors"
-                  >
-                    Marcar instalado
-                  </button>
+              {req.status === "WAITING" && req.type === "tool" && (
+                <div className="mt-3 pt-3 border-t border-[rgba(148,163,184,0.08)]">
+                  <p className="text-xs text-slate-400 mb-2">
+                    Herramienta local. Instalar manualmente y luego marcar como provided:
+                  </p>
+                  <div className="flex gap-2">
+                    <GlowButton
+                      onClick={() => updateStatus(req.id, "PROVIDED")}
+                      variant="primary"
+                      size="sm"
+                    >
+                      Marcar instalado
+                    </GlowButton>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </GlassCard>
+          </AnimatedFadeIn>
         ))}
       </div>
-    </div>
+    </PageContainer>
   );
 }

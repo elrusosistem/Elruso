@@ -3,6 +3,16 @@ import type { ApiResponse, Project } from "@elruso/types";
 import { apiFetch } from "../api";
 import { useSelectedProject } from "../projectStore";
 import { humanizeProfileId } from "../humanize";
+import {
+  PageContainer,
+  GlassCard,
+  GlowButton,
+  StatusPill,
+  SectionBlock,
+  HeroPanel,
+  AnimatedFadeIn,
+  Modal2026,
+} from "../ui2026";
 
 const PROFILE_OPTIONS = [
   { value: "open", label: "Abierto", desc: "Para cualquier proyecto. El sistema se adapta a lo que necesites." },
@@ -102,141 +112,152 @@ export function ProjectsList() {
 
   if (loading) {
     return (
-      <div className="p-6 text-gray-400">Cargando proyectos...</div>
+      <PageContainer maxWidth="md">
+        <div className="text-slate-400">Cargando proyectos...</div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-bold">Proyectos</h1>
-        <button
-          onClick={() => setShowModal(true)}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition-colors"
-        >
-          Nuevo proyecto
-        </button>
-      </div>
+    <PageContainer maxWidth="md">
+      <HeroPanel
+        title="Proyectos"
+        actions={
+          <GlowButton variant="primary" size="md" onClick={() => setShowModal(true)}>
+            Nuevo proyecto
+          </GlowButton>
+        }
+      />
 
       {error && (
-        <div className="bg-red-900/50 border border-red-700 rounded px-4 py-2 mb-4 text-sm text-red-200">
-          {error}
-        </div>
+        <AnimatedFadeIn>
+          <div className="bg-red-900/30 border border-red-700/50 rounded-card px-4 py-2.5 mb-4 text-sm text-red-300">
+            {error}
+          </div>
+        </AnimatedFadeIn>
       )}
 
       {/* Create project modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-full max-w-md mx-4">
-            <h2 className="text-lg font-bold mb-4">Nuevo proyecto</h2>
+      <Modal2026
+        open={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setNewName("");
+          setNewProfile("open");
+          setError(null);
+        }}
+        title="Nuevo proyecto"
+        maxWidth="max-w-md"
+      >
+        {/* Name */}
+        <label className="block text-sm text-slate-400 mb-1">Nombre</label>
+        <input
+          type="text"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          placeholder="Ej: Mi tienda, Soporte WhatsApp..."
+          autoFocus
+          className="w-full bg-elevated border border-[rgba(148,163,184,0.08)] rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:outline-none mb-4"
+        />
 
-            {/* Name */}
-            <label className="block text-sm text-gray-400 mb-1">Nombre</label>
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="Ej: Mi tienda, Soporte WhatsApp..."
-              autoFocus
-              className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:border-indigo-500 focus:outline-none mb-4"
-            />
-
-            {/* Profile selector */}
-            <label className="block text-sm text-gray-400 mb-2">Perfil</label>
-            <div className="space-y-2 mb-5">
-              {PROFILE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setNewProfile(opt.value)}
-                  className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                    newProfile === opt.value
-                      ? "bg-indigo-900/30 border-indigo-500"
-                      : "bg-gray-800 border-gray-700 hover:border-gray-500"
-                  }`}
-                >
-                  <div className="text-sm font-medium">{opt.label}</div>
-                  <div className="text-xs text-gray-400">{opt.desc}</div>
-                </button>
-              ))}
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowModal(false);
-                  setNewName("");
-                  setNewProfile("open");
-                  setError(null);
-                }}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleCreate}
-                disabled={creating || !newName.trim()}
-                className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors"
-              >
-                {creating ? "Creando..." : "Crear y configurar"}
-              </button>
-            </div>
-          </div>
+        {/* Profile selector */}
+        <label className="block text-sm text-slate-400 mb-2">Perfil</label>
+        <div className="space-y-2 mb-5">
+          {PROFILE_OPTIONS.map((opt) => (
+            <GlassCard
+              key={opt.value}
+              hover
+              glow={newProfile === opt.value ? "primary" : "none"}
+              onClick={() => setNewProfile(opt.value)}
+              className="!p-3"
+            >
+              <div className="text-sm font-medium text-white">{opt.label}</div>
+              <div className="text-xs text-slate-400">{opt.desc}</div>
+            </GlassCard>
+          ))}
         </div>
-      )}
+
+        {/* Actions */}
+        <div className="flex gap-3">
+          <GlowButton
+            variant="secondary"
+            size="md"
+            onClick={() => {
+              setShowModal(false);
+              setNewName("");
+              setNewProfile("open");
+              setError(null);
+            }}
+          >
+            Cancelar
+          </GlowButton>
+          <GlowButton
+            variant="primary"
+            size="md"
+            onClick={handleCreate}
+            disabled={creating || !newName.trim()}
+            className="flex-1"
+          >
+            {creating ? "Creando..." : "Crear y configurar"}
+          </GlowButton>
+        </div>
+      </Modal2026>
 
       {/* Project list */}
-      <div className="space-y-2">
-        {projects.map((p) => {
-          const isSelected = selectedProject?.id === p.id;
-          return (
-            <div
-              key={p.id}
-              onClick={() => handleSelect(p)}
-              className={`flex items-center justify-between p-4 rounded-lg border cursor-pointer transition-colors ${
-                isSelected
-                  ? "border-blue-500 bg-blue-900/30"
-                  : "border-gray-700 bg-gray-800/50 hover:border-gray-600"
-              }`}
-            >
-              <div>
-                <div className="font-medium">{p.name}</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {humanizeProfileId(p.profile)} &middot; {new Date(p.created_at).toLocaleDateString("es-AR")}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {!p.is_active && (
-                  <span className="text-xs bg-gray-700 px-2 py-0.5 rounded">Inactivo</span>
-                )}
-                {isSelected && (
-                  <span className="text-xs bg-blue-600 px-2 py-0.5 rounded">Seleccionado</span>
-                )}
-                <button
-                  onClick={(e) => handleDelete(e, p)}
-                  disabled={deleting === p.id}
-                  className="text-xs text-gray-500 hover:text-red-400 px-2 py-1 rounded hover:bg-red-900/20 transition-colors"
-                  title="Eliminar proyecto"
+      <SectionBlock>
+        <div className="space-y-2">
+          {projects.map((p, i) => {
+            const isSelected = selectedProject?.id === p.id;
+            return (
+              <AnimatedFadeIn key={p.id} delay={i * 50}>
+                <GlassCard
+                  hover
+                  glow={isSelected ? "primary" : "none"}
+                  onClick={() => handleSelect(p)}
+                  className="!p-4"
                 >
-                  {deleting === p.id ? "..." : "Eliminar"}
-                </button>
-              </div>
-            </div>
-          );
-        })}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium text-white">{p.name}</div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        {humanizeProfileId(p.profile)} &middot; {new Date(p.created_at).toLocaleDateString("es-AR")}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {!p.is_active && (
+                        <StatusPill status="offline" label="Inactivo" />
+                      )}
+                      {isSelected && (
+                        <StatusPill status="active" label="Seleccionado" />
+                      )}
+                      <GlowButton
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => handleDelete(e as React.MouseEvent, p)}
+                        disabled={deleting === p.id}
+                        className="text-slate-500 hover:text-red-400 hover:bg-red-900/20"
+                      >
+                        {deleting === p.id ? "..." : "Eliminar"}
+                      </GlowButton>
+                    </div>
+                  </div>
+                </GlassCard>
+              </AnimatedFadeIn>
+            );
+          })}
 
-        {projects.length === 0 && (
-          <div className="text-center py-8">
-            <p className="text-gray-500 mb-4">No hay proyectos. Crea uno para comenzar.</p>
-            <button
-              onClick={() => setShowModal(true)}
-              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition-colors"
-            >
-              Nuevo proyecto
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
+          {projects.length === 0 && (
+            <AnimatedFadeIn>
+              <div className="text-center py-8">
+                <p className="text-slate-500 mb-4">No hay proyectos. Crea uno para comenzar.</p>
+                <GlowButton variant="primary" size="md" onClick={() => setShowModal(true)}>
+                  Nuevo proyecto
+                </GlowButton>
+              </div>
+            </AnimatedFadeIn>
+          )}
+        </div>
+      </SectionBlock>
+    </PageContainer>
   );
 }

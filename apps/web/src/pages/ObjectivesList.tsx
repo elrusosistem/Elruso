@@ -2,13 +2,10 @@ import { useEffect, useState } from "react";
 import type { ApiResponse, Objective } from "@elruso/types";
 import { apiFetch } from "../api";
 import { useUiMode } from "../uiMode";
-
-const STATUS_COLORS: Record<string, string> = {
-  draft: "bg-gray-500",
-  active: "bg-green-500",
-  paused: "bg-yellow-500",
-  done: "bg-blue-500",
-};
+import {
+  PageContainer, GlassCard, GlowButton, StatusPill,
+  SectionBlock, HeroPanel, AnimatedFadeIn,
+} from "../ui2026";
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "Borrador",
@@ -75,7 +72,7 @@ export function ObjectivesList() {
     }
   };
 
-  if (loading) return <div className="p-8 text-gray-400">Cargando objetivos...</div>;
+  if (loading) return <div className="p-8 text-slate-500">Cargando objetivos...</div>;
 
   // Group by status: active first, then draft, paused, done
   const order = ["active", "draft", "paused", "done"];
@@ -86,125 +83,111 @@ export function ObjectivesList() {
   const activeCount = objectives.filter((o) => o.status === "active").length;
 
   return (
-    <div className="p-8 max-w-3xl">
-      <h2 className="text-2xl font-bold mb-2">Objetivos</h2>
-      <p className="text-sm text-gray-400 mb-6">
-        {isOp
-          ? "Las metas de tu negocio. El sistema genera planes alineados a estos objetivos."
-          : "Objectives scope GPT planning. Active objectives are included in the compose prompt."}
-      </p>
+    <PageContainer maxWidth="lg">
+      <HeroPanel
+        title="Objetivos"
+        subtitle={
+          isOp
+            ? "Las metas de tu negocio. El sistema genera planes alineados a estos objetivos."
+            : "Objectives scope GPT planning. Active objectives are included in the compose prompt."
+        }
+      />
 
+      {/* Action feedback */}
       {message && (
         <div
-          className={`mb-4 text-sm ${message.type === "ok" ? "text-green-400" : "text-red-400"}`}
+          className={`mb-6 text-sm px-4 py-2 rounded-card ${
+            message.type === "ok" ? "text-green-400 bg-green-500/10" : "text-red-400 bg-red-500/10"
+          }`}
         >
           {message.text}
         </div>
       )}
 
       {objectives.length === 0 ? (
-        <div className="bg-gray-800 rounded-lg p-8 text-center">
-          <p className="text-gray-400 mb-4">
-            {isOp
-              ? "No hay objetivos definidos. Completa el wizard para crear tu primer objetivo."
-              : "No objectives. Complete the strategy wizard to create one."}
-          </p>
-          <a
-            href="#/strategy-wizard"
-            className="inline-block px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition-colors"
-          >
-            Definir estrategia
-          </a>
-        </div>
+        <AnimatedFadeIn>
+          <GlassCard glow="primary" className="text-center">
+            <p className="text-slate-400 mb-4">
+              {isOp
+                ? "No hay objetivos definidos. Completa el wizard para crear tu primer objetivo."
+                : "No objectives. Complete the strategy wizard to create one."}
+            </p>
+            <a href="#/strategy-wizard">
+              <GlowButton variant="primary">Definir estrategia</GlowButton>
+            </a>
+          </GlassCard>
+        </AnimatedFadeIn>
       ) : (
-        <div className="space-y-3">
-          {sorted.map((obj) => (
-            <div
-              key={obj.id}
-              className="bg-gray-800 rounded-lg p-4"
-            >
-              <div className="flex items-start gap-3">
-                <span
-                  className={`mt-1 w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_COLORS[obj.status]}`}
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h3 className="text-sm font-medium text-white truncate">
-                      {obj.title}
-                    </h3>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded ${
-                        obj.status === "active"
-                          ? "bg-green-900 text-green-400"
-                          : "bg-gray-700 text-gray-400"
-                      }`}
-                    >
-                      {STATUS_LABELS[obj.status] ?? obj.status}
-                    </span>
-                    <span className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-400 rounded">
-                      {obj.profile}
-                    </span>
-                  </div>
-                  {obj.description && (
-                    <p className="text-xs text-gray-400 mb-2">
-                      {obj.description}
-                    </p>
-                  )}
-                  {!isOp && (
-                    <div className="text-xs text-gray-600">
-                      ID: {obj.id} | P{obj.priority} |{" "}
-                      {new Date(obj.created_at).toLocaleString("es-AR")}
-                      {obj.last_reviewed_at && (
-                        <> | Revisado: {new Date(obj.last_reviewed_at).toLocaleString("es-AR")}</>
+        <SectionBlock>
+          <div className="space-y-3">
+            {sorted.map((obj, i) => (
+              <AnimatedFadeIn key={obj.id} delay={i * 40}>
+                <GlassCard hover className="!p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <h3 className="text-sm font-medium text-white truncate">
+                          {obj.title}
+                        </h3>
+                        <StatusPill
+                          status={obj.status}
+                          label={STATUS_LABELS[obj.status] ?? obj.status}
+                          pulse={obj.status === "active"}
+                        />
+                        <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-full font-medium">
+                          {obj.profile}
+                        </span>
+                      </div>
+                      {obj.description && (
+                        <p className="text-xs text-slate-400 mb-2">
+                          {obj.description}
+                        </p>
+                      )}
+                      {!isOp && (
+                        <div className="text-xs text-slate-600">
+                          ID: {obj.id} | P{obj.priority} |{" "}
+                          {new Date(obj.created_at).toLocaleString("es-AR")}
+                          {obj.last_reviewed_at && (
+                            <> | Revisado: {new Date(obj.last_reviewed_at).toLocaleString("es-AR")}</>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  {obj.status === "draft" && (
-                    <button
-                      onClick={() => activate(obj.id)}
-                      className="text-xs px-3 py-1.5 bg-green-700 hover:bg-green-600 rounded transition-colors"
-                    >
-                      Activar
-                    </button>
-                  )}
-                  {obj.status === "active" && (
-                    <>
-                      <button
-                        onClick={() => pause(obj.id)}
-                        className="text-xs px-3 py-1.5 bg-yellow-700 hover:bg-yellow-600 rounded transition-colors"
-                      >
-                        Pausar
-                      </button>
-                      <button
-                        onClick={() => complete(obj.id)}
-                        className="text-xs px-3 py-1.5 bg-blue-700 hover:bg-blue-600 rounded transition-colors"
-                      >
-                        Completar
-                      </button>
-                    </>
-                  )}
-                  {obj.status === "paused" && (
-                    <button
-                      onClick={() => activate(obj.id)}
-                      className="text-xs px-3 py-1.5 bg-green-700 hover:bg-green-600 rounded transition-colors"
-                    >
-                      Reactivar
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+                    <div className="flex gap-2 flex-shrink-0">
+                      {obj.status === "draft" && (
+                        <GlowButton onClick={() => activate(obj.id)} variant="primary" size="sm">
+                          Activar
+                        </GlowButton>
+                      )}
+                      {obj.status === "active" && (
+                        <>
+                          <GlowButton onClick={() => pause(obj.id)} variant="secondary" size="sm">
+                            Pausar
+                          </GlowButton>
+                          <GlowButton onClick={() => complete(obj.id)} variant="ghost" size="sm">
+                            Completar
+                          </GlowButton>
+                        </>
+                      )}
+                      {obj.status === "paused" && (
+                        <GlowButton onClick={() => activate(obj.id)} variant="primary" size="sm">
+                          Reactivar
+                        </GlowButton>
+                      )}
+                    </div>
+                  </div>
+                </GlassCard>
+              </AnimatedFadeIn>
+            ))}
+          </div>
+        </SectionBlock>
       )}
 
       {activeCount > 0 && (
-        <div className="mt-4 text-xs text-gray-500">
+        <div className="mt-4 text-xs text-slate-500">
           {activeCount} objetivo(s) activo(s) — el sistema genera planes alineados a estos.
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 }
