@@ -1,8 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { TIENDANUBE_PLANNING_REQUESTS, type PlanningRequest } from "./tiendanube.js";
+import { OPEN_PLANNING_REQUESTS } from "./open.js";
+import { WABA_PLANNING_REQUESTS } from "./waba.js";
 
 const PROFILE_REQUESTS: Record<string, PlanningRequest[]> = {
+  open: OPEN_PLANNING_REQUESTS,
   tiendanube: TIENDANUBE_PLANNING_REQUESTS,
+  waba: WABA_PLANNING_REQUESTS,
 };
 
 /**

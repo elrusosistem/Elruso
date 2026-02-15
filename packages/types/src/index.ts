@@ -134,6 +134,8 @@ export interface WizardAnswers {
   tech_level?: "none" | "basic" | "intermediate" | "technical";
   current_stack?: string;
   profile?: string;
+  waba_goal?: string;
+  waba_readiness?: string;
 }
 
 export interface WizardState {

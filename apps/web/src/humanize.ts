@@ -130,6 +130,17 @@ export function isOperatorVisible(task: { id: string; title?: string; status: st
   return true;
 }
 
+// --- Profile labels ---
+const PROFILE_LABELS: Record<string, string> = {
+  open: "Abierto",
+  tiendanube: "Tiendanube",
+  waba: "WhatsApp API",
+};
+
+export function humanizeProfileId(profile: string): string {
+  return PROFILE_LABELS[profile] ?? profile;
+}
+
 // --- Nav labels ---
 export const OPERATOR_NAV_LABELS: Record<string, string> = {
   Dashboard: "Inicio",

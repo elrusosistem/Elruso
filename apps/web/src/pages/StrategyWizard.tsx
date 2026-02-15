@@ -1,8 +1,30 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import type { ApiResponse, Objective } from "@elruso/types";
 import { apiFetch } from "../api";
+import { humanizeProfileId } from "../humanize";
 
-const STEPS = [
+interface StepDef {
+  key: string;
+  title: string;
+  subtitle: string;
+  placeholder?: string;
+  type: "textarea" | "radio";
+  options?: { value: string; label: string; desc: string }[];
+}
+
+const PROFILE_STEP: StepDef = {
+  key: "profile",
+  title: "Que tipo de proyecto queres configurar?",
+  subtitle: "Esto determina que integraciones y datos va a pedir el sistema.",
+  type: "radio" as const,
+  options: [
+    { value: "open", label: "Abierto", desc: "Para cualquier proyecto. El sistema se adapta a lo que necesites." },
+    { value: "tiendanube", label: "Tiendanube", desc: "E-commerce con Tiendanube." },
+    { value: "waba", label: "WhatsApp API", desc: "Integracion con WhatsApp Business API." },
+  ],
+};
+
+const BASE_STEPS: StepDef[] = [
   {
     key: "what_to_achieve",
     title: "Contanos que queres lograr",
@@ -35,21 +57,41 @@ const STEPS = [
     subtitle: "Contanos que herramientas usas. Esto determina que integraciones activamos.",
     placeholder: "Ej: Tiendanube, Mercado Libre, Instagram, Excel...",
     type: "textarea" as const,
-    extra: (
-      <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-blue-900/30 border border-blue-700 rounded text-sm">
-        <span className="text-blue-400 font-medium">Perfil detectado:</span>
-        <span className="text-white">Tiendanube</span>
-      </div>
-    ),
   },
 ];
 
-type Step = "questions" | "summary" | "result";
+const WABA_STEPS: StepDef[] = [
+  {
+    key: "waba_goal",
+    title: "Que queres lograr con WhatsApp?",
+    subtitle: "Esto nos ayuda a priorizar la configuracion del canal.",
+    type: "radio" as const,
+    options: [
+      { value: "ventas", label: "Ventas", desc: "Recibir pedidos y cerrar ventas por WhatsApp" },
+      { value: "soporte", label: "Soporte", desc: "Atender consultas y reclamos de clientes" },
+      { value: "cobranzas", label: "Cobranzas", desc: "Enviar recordatorios de pago y cobrar" },
+      { value: "notificaciones", label: "Notificaciones", desc: "Enviar avisos, confirmaciones y alertas" },
+    ],
+  },
+  {
+    key: "waba_readiness",
+    title: "Ya tenes numero aprobado y plantillas o arrancas de cero?",
+    subtitle: "Esto nos ayuda a estimar el setup necesario.",
+    type: "radio" as const,
+    options: [
+      { value: "tengo_todo", label: "Tengo todo", desc: "Numero aprobado, plantillas y acceso a la API" },
+      { value: "tengo_numero", label: "Tengo numero", desc: "Numero aprobado pero sin plantillas ni integracion" },
+      { value: "desde_cero", label: "Desde cero", desc: "Todavia no tengo nada configurado en Meta" },
+    ],
+  },
+];
+
+type Phase = "questions" | "summary" | "result";
 
 export function StrategyWizard() {
   const [currentStep, setCurrentStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [phase, setPhase] = useState<Step>("questions");
+  const [phase, setPhase] = useState<Phase>("questions");
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{
     success: boolean;
@@ -57,8 +99,18 @@ export function StrategyWizard() {
     message: string;
   } | null>(null);
 
-  const step = STEPS[currentStep];
-  const totalSteps = STEPS.length;
+  const selectedProfile = answers.profile ?? "";
+
+  const steps = useMemo(() => {
+    const all: StepDef[] = [PROFILE_STEP, ...BASE_STEPS];
+    if (selectedProfile === "waba") {
+      all.push(...WABA_STEPS);
+    }
+    return all;
+  }, [selectedProfile]);
+
+  const step = steps[currentStep];
+  const totalSteps = steps.length;
   const canNext = !!answers[step?.key]?.trim();
 
   const handleNext = () => {
@@ -79,13 +131,14 @@ export function StrategyWizard() {
 
   const handleSubmit = async () => {
     setSaving(true);
+    const profile = selectedProfile || "open";
     try {
       // 1. Save wizard answers
       const wizardRes = await apiFetch("/api/ops/wizard/answers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          answers: { ...answers, profile: "tiendanube" },
+          answers: { ...answers, profile },
           completed: true,
         }),
       });
@@ -108,7 +161,7 @@ export function StrategyWizard() {
         body: JSON.stringify({
           title: answers.what_to_achieve?.trim() ?? "Objetivo principal",
           description: `Como lo hace hoy: ${answers.how_today ?? "—"}. Stack: ${answers.current_stack ?? "—"}`,
-          profile: "tiendanube",
+          profile,
         }),
       });
       const objData: ApiResponse<Objective> = await objRes.json();
@@ -198,23 +251,19 @@ export function StrategyWizard() {
       <div className="p-8 max-w-xl mx-auto">
         <h2 className="text-2xl font-bold mb-6">Resumen</h2>
         <div className="space-y-4 mb-8">
-          {STEPS.map((s) => (
+          {steps.map((s) => (
             <div key={s.key} className="bg-gray-800 rounded-lg p-4">
               <div className="text-xs text-gray-500 uppercase mb-1">
                 {s.title.replace("?", "")}
               </div>
               <div className="text-sm text-gray-200">
-                {s.key === "tech_level"
-                  ? s.options?.find((o) => o.value === answers[s.key])?.label ??
-                    answers[s.key]
+                {s.options
+                  ? s.options.find((o) => o.value === answers[s.key])?.label ??
+                    answers[s.key] ?? "—"
                   : answers[s.key] || "—"}
               </div>
             </div>
           ))}
-          <div className="bg-gray-800 rounded-lg p-4">
-            <div className="text-xs text-gray-500 uppercase mb-1">Perfil</div>
-            <div className="text-sm text-blue-400 font-medium">Tiendanube</div>
-          </div>
         </div>
         <div className="flex gap-3">
           <button
@@ -240,7 +289,7 @@ export function StrategyWizard() {
     <div className="p-8 max-w-xl mx-auto">
       {/* Progress bar */}
       <div className="flex items-center gap-2 mb-8">
-        {STEPS.map((_, i) => (
+        {steps.map((_, i) => (
           <div
             key={i}
             className={`h-1.5 flex-1 rounded-full transition-colors ${
@@ -254,6 +303,14 @@ export function StrategyWizard() {
       <div className="text-xs text-gray-500 mb-2">
         Paso {currentStep + 1} de {totalSteps}
       </div>
+
+      {/* Selected profile indicator (after profile step) */}
+      {currentStep > 0 && selectedProfile && (
+        <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-blue-900/30 border border-blue-700 rounded text-sm">
+          <span className="text-blue-400 font-medium">Perfil:</span>
+          <span className="text-white">{humanizeProfileId(selectedProfile)}</span>
+        </div>
+      )}
 
       {/* Question */}
       <h2 className="text-xl font-bold mb-2">{step.title}</h2>
@@ -292,9 +349,6 @@ export function StrategyWizard() {
           ))}
         </div>
       )}
-
-      {/* Extra content */}
-      {step.extra}
 
       {/* Navigation */}
       <div className="flex gap-3 mt-8">

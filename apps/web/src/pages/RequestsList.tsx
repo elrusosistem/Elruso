@@ -295,7 +295,7 @@ export function RequestsList() {
                     {valueStatuses[req.id] && (
                       <span className="text-xs px-2 py-0.5 bg-green-900 text-green-300 rounded">OK</span>
                     )}
-                    {req.service === "tiendanube" && valueStatuses[req.id] && (
+                    {(req.service === "tiendanube" || req.service === "waba") && valueStatuses[req.id] && (
                       <button
                         onClick={() => validateRequest(req.id)}
                         disabled={validating === req.id}

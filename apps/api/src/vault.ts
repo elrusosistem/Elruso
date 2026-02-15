@@ -112,6 +112,11 @@ export async function validateProvider(requestId: string, projectId?: string): P
     case "REQ-005": return validateDatabase(values, projectId);
     case "REQ-TN-STORE": return validateTiendanubeStore(values);
     case "REQ-TN-TOKEN": return validateTiendanubeToken(values, projectId);
+    case "REQ-WABA-PHONE":
+    case "REQ-WABA-ACCOUNT":
+    case "REQ-WABA-APP-ID":
+    case "REQ-WABA-WEBHOOK-URL": return validateWabaIdsFormat(values);
+    case "REQ-WABA-TOKEN": return validateWabaToken(values, projectId);
     default: return { ok: true, message: "Request sin validación automática" };
   }
 }
@@ -250,6 +255,65 @@ async function validateTiendanubeToken(values: Record<string, string>, projectId
     return { ok: false, message: `Tiendanube respondio ${res.status}` };
   } catch (e) {
     return { ok: false, message: `Error conectando a Tiendanube: ${(e as Error).message}` };
+  }
+}
+
+// ─── Validación WABA ────────────────────────────────────────────────
+
+export async function validateWabaIdsFormat(values: Record<string, string>): Promise<{ ok: boolean; message: string }> {
+  const phoneId = values.WABA_PHONE_NUMBER_ID;
+  if (phoneId && !/^\d+$/.test(phoneId)) {
+    return { ok: false, message: "WABA_PHONE_NUMBER_ID debe ser numerico" };
+  }
+
+  const accountId = values.WABA_BUSINESS_ACCOUNT_ID;
+  if (accountId && !/^\d+$/.test(accountId)) {
+    return { ok: false, message: "WABA_BUSINESS_ACCOUNT_ID debe ser numerico" };
+  }
+
+  const appId = values.META_APP_ID;
+  if (appId && !/^\d+$/.test(appId)) {
+    return { ok: false, message: "META_APP_ID debe ser numerico" };
+  }
+
+  const webhookUrl = values.WEBHOOK_CALLBACK_URL;
+  if (webhookUrl && !webhookUrl.startsWith("https://")) {
+    return { ok: false, message: "WEBHOOK_CALLBACK_URL debe comenzar con https://" };
+  }
+
+  return { ok: true, message: "Formato WABA OK" };
+}
+
+async function validateWabaToken(values: Record<string, string>, projectId?: string): Promise<{ ok: boolean; message: string }> {
+  const token = values.WABA_ACCESS_TOKEN;
+  if (!token) return { ok: false, message: "WABA_ACCESS_TOKEN no proporcionado" };
+
+  const phoneValues = getRequestValues("REQ-WABA-PHONE", projectId);
+  const phoneId = phoneValues?.WABA_PHONE_NUMBER_ID;
+
+  if (!phoneId) {
+    return { ok: false, message: "Configurar primero REQ-WABA-PHONE (Phone Number ID) antes de validar el token" };
+  }
+
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/v19.0/${phoneId}?fields=display_phone_number,verified_name`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+
+    if (res.ok) {
+      const data = await res.json() as { display_phone_number?: string; verified_name?: string };
+      const label = data.verified_name ?? data.display_phone_number ?? "OK";
+      return { ok: true, message: `WABA OK (${label})` };
+    }
+
+    if (res.status === 401 || res.status === 190) {
+      return { ok: false, message: "Token invalido o expirado" };
+    }
+
+    return { ok: false, message: `Graph API respondio ${res.status}` };
+  } catch (e) {
+    return { ok: false, message: `Error conectando a Graph API: ${(e as Error).message}` };
   }
 }
 
