@@ -185,6 +185,13 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     async (request): Promise<ApiResponse<{ ok: boolean; message: string }>> => {
       const { id } = request.params;
       const result = await validateProvider(id);
+
+      logDecision({
+        source: "system",
+        decision_key: result.ok ? "request_validated_ok" : "request_validated_failed",
+        decision_value: { request_id: id, message: result.message },
+      });
+
       return { ok: true, data: result };
     }
   );

@@ -84,6 +84,8 @@ const DECISION_KEY_MAP: Record<string, string> = {
   objective_paused: "Objetivo pausado",
   wizard_completed: "Configuracion inicial completada",
   auto_requests_created: "Configuracion requerida generada",
+  request_validated_ok: "Validacion de credencial exitosa",
+  request_validated_failed: "Validacion de credencial fallida",
 };
 
 export function humanizeDecisionKey(key: string): string {

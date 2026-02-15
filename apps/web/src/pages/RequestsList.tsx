@@ -26,6 +26,10 @@ export function RequestsList() {
   const [valueStatuses, setValueStatuses] = useState<ValueStatus>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [validating, setValidating] = useState<string | null>(null);
+  const [validationResults, setValidationResults] = useState<
+    Record<string, { ok: boolean; message: string } | null>
+  >({});
   const [mode] = useUiMode();
   const isOp = mode === "operator";
 
@@ -104,6 +108,32 @@ export function RequestsList() {
       setMessage((e as Error).message);
     } finally {
       setSaving(null);
+    }
+  };
+
+  const validateRequest = async (reqId: string) => {
+    setValidating(reqId);
+    setValidationResults((prev) => ({ ...prev, [reqId]: null }));
+    try {
+      const res = await apiFetch(`/api/ops/requests/${reqId}/validate`, {
+        method: "POST",
+      });
+      const data: ApiResponse<{ ok: boolean; message: string }> = await res.json();
+      if (data.ok && data.data) {
+        setValidationResults((prev) => ({ ...prev, [reqId]: data.data! }));
+      } else {
+        setValidationResults((prev) => ({
+          ...prev,
+          [reqId]: { ok: false, message: data.error ?? "Error validando" },
+        }));
+      }
+    } catch (e) {
+      setValidationResults((prev) => ({
+        ...prev,
+        [reqId]: { ok: false, message: (e as Error).message },
+      }));
+    } finally {
+      setValidating(null);
     }
   };
 
@@ -257,19 +287,43 @@ export function RequestsList() {
             <h3 className="text-lg font-semibold mb-3 text-green-400">Configuradas</h3>
             <div className="space-y-2">
               {provided.map((req) => (
-                <div key={req.id} className="bg-gray-800 rounded-lg p-4 flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-green-500" />
-                  <span className="flex-1">{req.purpose}</span>
-                  <span className="text-xs px-2 py-0.5 bg-gray-700 rounded">{req.service}</span>
-                  {valueStatuses[req.id] && (
-                    <span className="text-xs px-2 py-0.5 bg-green-900 text-green-300 rounded">OK</span>
+                <div key={req.id} className="bg-gray-800 rounded-lg p-4">
+                  <div className="flex items-center gap-3">
+                    <span className="w-2 h-2 rounded-full bg-green-500" />
+                    <span className="flex-1">{req.purpose}</span>
+                    <span className="text-xs px-2 py-0.5 bg-gray-700 rounded">{req.service}</span>
+                    {valueStatuses[req.id] && (
+                      <span className="text-xs px-2 py-0.5 bg-green-900 text-green-300 rounded">OK</span>
+                    )}
+                    {req.service === "tiendanube" && valueStatuses[req.id] && (
+                      <button
+                        onClick={() => validateRequest(req.id)}
+                        disabled={validating === req.id}
+                        className="text-xs px-3 py-1 bg-blue-700 hover:bg-blue-600 disabled:bg-gray-600 rounded transition-colors"
+                      >
+                        {validating === req.id ? "Probando..." : "Probar"}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => updateStatus(req.id, "WAITING")}
+                      className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                    >
+                      Reconfigurar
+                    </button>
+                  </div>
+                  {validationResults[req.id] && (
+                    <div className="mt-2 ml-5">
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded ${
+                          validationResults[req.id]!.ok
+                            ? "bg-green-900 text-green-300"
+                            : "bg-red-900 text-red-300"
+                        }`}
+                      >
+                        {validationResults[req.id]!.message}
+                      </span>
+                    </div>
                   )}
-                  <button
-                    onClick={() => updateStatus(req.id, "WAITING")}
-                    className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-                  >
-                    Reconfigurar
-                  </button>
                 </div>
               ))}
             </div>

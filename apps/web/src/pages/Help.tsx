@@ -45,6 +45,14 @@ const FAQ: { q: string; a: string }[] = [
     q: "Que es el Agente?",
     a: "Es el programa que ejecuta las tareas. Si dice \"Activo\" esta funcionando. Si dice \"Apagado\" necesita iniciarse.",
   },
+  {
+    q: "Por que me pide tokens?",
+    a: "Para conectarse a servicios externos (como Tiendanube o Mercado Libre), el sistema necesita tokens de acceso. Son como llaves seguras que le permiten operar en tu nombre. Los tokens se guardan de forma segura y nunca se comparten. Podes encontrarlos en el panel de administracion de cada servicio.",
+  },
+  {
+    q: 'Que significa "No se puede generar plan" y como lo destrabo?',
+    a: "Hay 3 causas comunes: (1) No completaste la configuracion inicial — anda a Definir estrategia y completa el wizard. (2) No hay objetivos activos — anda a Objetivos y activa al menos uno. (3) Faltan datos de configuracion — anda a Configuracion y completa los datos marcados como requeridos.",
+  },
 ];
 
 export function Help() {

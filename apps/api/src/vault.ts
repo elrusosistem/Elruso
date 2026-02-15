@@ -84,6 +84,8 @@ export async function validateProvider(requestId: string): Promise<{ ok: boolean
     case "REQ-002": return validateRender(values);
     case "REQ-003": return validateVercel(values);
     case "REQ-005": return validateDatabase(values);
+    case "REQ-TN-STORE": return validateTiendanubeStore(values);
+    case "REQ-TN-TOKEN": return validateTiendanubeToken(values);
     default: return { ok: true, message: "Request sin validación automática" };
   }
 }
@@ -177,6 +179,56 @@ async function validateDatabase(_values: Record<string, string>): Promise<{ ok: 
     return { ok: false, message: `Database error: Supabase API respondió ${res.status}` };
   } catch (e) {
     return { ok: false, message: `Error conectando: ${(e as Error).message}` };
+  }
+}
+
+async function validateTiendanubeStore(values: Record<string, string>): Promise<{ ok: boolean; message: string }> {
+  const storeId = values.TIENDANUBE_STORE_ID;
+  const storeUrl = values.TIENDANUBE_STORE_URL;
+
+  if (!storeId) return { ok: false, message: "TIENDANUBE_STORE_ID no proporcionado" };
+  if (!/^\d+$/.test(storeId)) return { ok: false, message: "TIENDANUBE_STORE_ID debe ser numerico" };
+
+  if (storeUrl) {
+    const urlPattern = /^https?:\/\/.+\.(mitiendanube\.com|lojavirtualnuvem\.com\.br)(\/.*)?$/i;
+    if (!urlPattern.test(storeUrl)) {
+      return { ok: false, message: "TIENDANUBE_STORE_URL debe ser *.mitiendanube.com o *.lojavirtualnuvem.com.br" };
+    }
+  }
+
+  return { ok: true, message: `Tiendanube Store OK (ID: ${storeId})` };
+}
+
+async function validateTiendanubeToken(values: Record<string, string>): Promise<{ ok: boolean; message: string }> {
+  const token = values.TIENDANUBE_ACCESS_TOKEN;
+  if (!token) return { ok: false, message: "TIENDANUBE_ACCESS_TOKEN no proporcionado" };
+
+  // Leer store_id del vault (REQ-TN-STORE)
+  const storeValues = getRequestValues("REQ-TN-STORE");
+  const storeId = storeValues?.TIENDANUBE_STORE_ID;
+
+  if (!storeId) {
+    return { ok: false, message: "Configurar primero REQ-TN-STORE (Store ID) antes de validar el token" };
+  }
+
+  try {
+    const res = await fetch(`https://api.tiendanube.com/v1/${storeId}/store`, {
+      headers: { Authentication: `bearer ${token}` },
+    });
+
+    if (res.ok) {
+      const data = await res.json() as { name?: Record<string, string> };
+      const name = data.name?.es ?? data.name?.pt ?? Object.values(data.name ?? {})[0] ?? "OK";
+      return { ok: true, message: `Tiendanube OK (tienda: ${name})` };
+    }
+
+    if (res.status === 401) {
+      return { ok: false, message: "Token invalido o expirado" };
+    }
+
+    return { ok: false, message: `Tiendanube respondio ${res.status}` };
+  } catch (e) {
+    return { ok: false, message: `Error conectando a Tiendanube: ${(e as Error).message}` };
   }
 }
 

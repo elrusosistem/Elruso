@@ -33,6 +33,9 @@ jobs:
 
       - name: Test
         run: pnpm -r test
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Build all
         run: pnpm -r build
