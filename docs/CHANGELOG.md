@@ -4,6 +4,31 @@ Registro de deploys y cambios del sistema El Ruso.
 
 ---
 
+## 2026-02-15 — fix: Planner guardrails — scope, acceptance, steps ejecutables
+
+### Resumen
+Post-mortem de la directiva "Juego El Impostor" que genero false success (scope_violation). Se implementaron guardrails en el planner para prevenir: tasks sin steps ejecutables, directivas de producto sin acceptance criteria, scope cruzado (producto tocando infra).
+
+### Archivos modificados
+- `apps/api/src/contracts/directive_v1.ts` — `steps` ahora es `[{name, cmd}]` (no strings). Nuevos schemas: `ExecutableStepSchema`, `AcceptanceSchema`. Nuevos campos: `scope_type`, `allowed_scope`, `acceptance`. Funcion `validateScope()` con reglas duras.
+- `apps/api/src/routes/gpt.ts` — Prompt de GPT ampliado con reglas A-E: clasificacion de scope (product/infra/mixed), steps ejecutables obligatorios, acceptance obligatorio para producto, regla de cierre, minimo 4 tasks para features de producto.
+- `apps/api/src/__tests__/directive_v1.test.ts` — 51 tests (9 nuevos de guardrails), todos con `{name, cmd}` steps.
+
+### Guardrails nuevos
+1. `scope_type=product` requiere minimo 4 tasks
+2. `scope_type=product` requiere `acceptance` con `expected_files` + `checks` en cada task
+3. `scope_type=product` PROHIBE `allowed_scope` con patterns de infra (scripts, db/migrations, executor, runner)
+4. `steps` deben ser `[{name, cmd}]` objects — strings descriptivos rechazados por schema
+5. Si no se puede armar acceptance → devolver `required_requests` (no inventar task generica)
+
+### Verificacion
+- 130/130 vitest tests passed (9 nuevos)
+- 10/10 bash NOOP tests passed
+- 28/28 executor tests passed
+- types build OK, api build OK
+
+---
+
 ## 2026-02-15 — feat: Runner ejecuta tareas reales (Modos A & B)
 
 ### Resumen

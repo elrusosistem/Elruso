@@ -250,18 +250,27 @@ Responde SOLO con un JSON array. Sin texto antes ni despues. Cada elemento sigue
     "directive_schema_version": "v1",
     "objective": "Que hay que lograr (min 10 chars, max 500)",
     "context_summary": "Por que ahora y que contexto tiene (max 2000)",
+    "scope_type": "product | infra | mixed",
+    "allowed_scope": ["apps/web/**"],
     "risks": [{"id":"R1","text":"Descripcion del riesgo (max 500)","severity":"low|med|high"}],
     "tasks_to_create": [
       {
         "task_id": "T-GPT-<unico>",
         "task_type": "feature|bugfix|infra|docs|test",
         "title": "Titulo de la task (max 200)",
-        "steps": ["Paso 1", "Paso 2"],
+        "steps": [
+          {"name": "crear-archivo", "cmd": "mkdir -p apps/web/src/pages && cat > apps/web/src/pages/Example.tsx << 'ENDOFFILE'\\n...contenido...\\nENDOFFILE"},
+          {"name": "verificar", "cmd": "test -f apps/web/src/pages/Example.tsx"}
+        ],
         "depends_on": ["T-XXX"],
         "priority": 3,
         "phase": 0,
         "params": {},
-        "acceptance_criteria": ["Criterio verificable"],
+        "acceptance": {
+          "expected_files": ["apps/web/src/pages/Example.tsx"],
+          "checks": ["test -f apps/web/src/pages/Example.tsx", "pnpm --filter @elruso/web build"]
+        },
+        "allowed_scope": ["apps/web/**"],
         "description": "Que hacer concretamente (max 2000)"
       }
     ],
@@ -305,8 +314,40 @@ ${runsSection}
 ## LAST DECISIONS (max 10)
 ${decisionsSection}
 
-## RULES
+## REGLAS DURAS (BLOQUEANTES — el validador rechaza si no se cumplen)
 
+### A) CLASIFICACION DE SCOPE (obligatorio)
+- scope_type="product": feature UI, paginas, componentes, endpoints de negocio.
+  - allowed_scope SOLO puede incluir: apps/web/**, apps/api/src/routes/**, packages/types/**
+  - PROHIBIDO: scripts/**, db/migrations/**, executor, runner, ops core
+  - MINIMO 4 tasks para producto (scaffold, implementacion, integracion, build/verificacion)
+- scope_type="infra": runner, executor, migrations, scripts, CI/CD.
+  - allowed_scope SOLO puede incluir: scripts/**, db/migrations/**, apps/api/src/contracts/**
+  - PROHIBIDO: apps/web/**
+- scope_type="mixed": solo si la directiva genuinamente requiere ambos (raro). Justificar en context_summary.
+
+### B) STEPS EJECUTABLES (obligatorio)
+- steps DEBE ser array de objetos {name, cmd} — NO strings descriptivos.
+- Cada cmd es un comando shell que el executor ejecuta literalmente.
+- Para crear archivos: usar heredoc (cat << 'EOF' > path ... EOF)
+- Para verificar: usar test -f, ls, wc -l, pnpm build, etc.
+- Si no podes generar steps ejecutables, responde con required_requests pidiendo informacion.
+
+### C) ACCEPTANCE (obligatorio para producto)
+- Cada task de scope_type="product" DEBE incluir:
+  - acceptance.expected_files: archivos que DEBEN existir al finalizar
+  - acceptance.checks: comandos que DEBEN pasar (exit 0)
+- El runner verificara estos checks. Si fallan → task FAILED con "no_deliverable".
+
+### D) REGLA DE CIERRE
+- Una task NO puede terminar OK si:
+  - No se crean los expected_files → FAIL "no_deliverable"
+  - No pasan los checks → FAIL "check_failed"
+  - Se toco un archivo fuera de allowed_scope → FAIL "scope_violation"
+- Si no podes armar acceptance, devolver required_requests con preguntas concretas.
+  NO inventar 1 task generica sin steps.
+
+### E) REGLAS GENERALES
 1. Solo directivas accionables. No filosofia.
 2. tasks_to_create NO puede estar vacio si la directiva pretende cambios.
 3. risks requiere al menos 1 entrada.
@@ -478,7 +519,7 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
         messages: [
           {
             role: "system",
-            content: "Sos el orquestador estrategico de El Ruso. Responde SOLO con un JSON array siguiendo el contrato directive_v1. Sin texto adicional. Todos los campos obligatorios deben estar presentes: version, objective, risks (min 1), tasks_to_create (min 1), success_criteria (min 1), estimated_impact.",
+            content: "Sos el orquestador estrategico de El Ruso. Responde SOLO con un JSON array siguiendo el contrato directive_v1. Sin texto adicional.\n\nCAMPOS OBLIGATORIOS: version, objective, scope_type, risks (min 1), tasks_to_create (min 1), success_criteria (min 1), estimated_impact.\n\nREGLAS CRITICAS:\n- steps DEBE ser array de {name, cmd} (objetos ejecutables, NO strings descriptivos)\n- scope_type=product: minimo 4 tasks, cada una con acceptance {expected_files, checks}\n- scope_type=product: PROHIBIDO tocar scripts/**, db/migrations/**, executor, runner\n- Si no podes generar steps ejecutables, devolver required_requests con preguntas concretas\n- NUNCA inventar 1 task generica sin steps como workaround",
           },
           { role: "user", content: prompt },
         ],

@@ -91,13 +91,50 @@ sin verificar el resultado real del apply.
 
 ## Tests
 
-- 119+ tests (vitest), 8 test files
-- `directive_v1.test.ts`: 42 tests (schema, validation, hash, dedup guarantees)
+- 130 tests (vitest), 8 test files
+- `directive_v1.test.ts`: 51 tests (schema, validation, hash, dedup guarantees, planner guardrails)
 - Tests obligatorios para apply:
   - Cross-directive: same tasks → both created
   - Intra-directive dedup: duplicate → skipped
   - task_id collision: → new ID generated
   - Zero-created: → explicit reason in hashes
+- Tests guardrails planner:
+  - Product con 4 tasks + acceptance → OK
+  - Product con 1 task → FAIL (minimo 4)
+  - Product sin acceptance → FAIL
+  - Product sin steps → FAIL
+  - Product con scope infra → FAIL (scope_violation)
+  - String steps rechazados por schema
+
+---
+
+## Planner Guardrails (directive_v1.ts)
+
+### Scope Classification
+- `scope_type=product`: features UI, paginas, componentes, endpoints de negocio
+  - `allowed_scope` SOLO: `apps/web/**`, `apps/api/src/routes/**`, `packages/types/**`
+  - PROHIBIDO: `scripts/**`, `db/migrations/**`, executor, runner
+  - MINIMO 4 tasks (scaffold, implementacion, integracion, build/verificacion)
+- `scope_type=infra`: runner, executor, migrations, scripts, CI/CD
+  - Sin minimo de tasks
+- `scope_type=mixed`: genuinamente requiere ambos (raro)
+
+### Steps Ejecutables (obligatorio)
+- `steps` DEBE ser array de `{name, cmd}` — NO strings descriptivos
+- Schema valida con `ExecutableStepSchema`: `z.object({ name, cmd })`
+- Strings en steps → rechazado por zod schema
+
+### Acceptance (obligatorio para producto)
+- `acceptance.expected_files`: archivos que DEBEN existir al finalizar
+- `acceptance.checks`: comandos que DEBEN pasar (exit 0)
+- Falta acceptance en product → `planner_guardrail_failed`
+
+### Validacion (validateScope)
+La funcion `validateScope()` en `directive_v1.ts` valida ANTES de aceptar la directiva:
+1. Product con <4 tasks → rechazado
+2. Product sin acceptance → rechazado
+3. Product sin steps → rechazado
+4. Product con allowed_scope de infra → `scope_violation`
 
 ---
 

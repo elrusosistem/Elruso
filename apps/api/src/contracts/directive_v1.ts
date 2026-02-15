@@ -9,15 +9,33 @@ export const RiskSchema = z.object({
   severity: z.enum(["low", "med", "high"]),
 });
 
+// Step ejecutable: {name, cmd} para executor.mjs
+export const ExecutableStepSchema = z.object({
+  name: z.string().min(1).max(200),
+  cmd: z.string().min(1).max(2000),
+});
+
+// Acceptance criteria ejecutables por task
+export const AcceptanceSchema = z.object({
+  expected_files: z.array(z.string().max(500)).min(1),
+  checks: z.array(z.string().max(500)).min(1),
+});
+
+// Scope: clasificacion de intent (producto vs infra)
+export const SCOPE_PRODUCT = ["apps/web/**", "apps/api/src/routes/**", "apps/api/src/activity/**", "packages/types/**"] as const;
+export const SCOPE_INFRA = ["scripts/**", "db/migrations/**", "apps/api/src/contracts/**"] as const;
+
 export const TaskToCreateSchema = z.object({
   task_id: z.string().min(1).optional(), // Si GPT no lo da, se genera
   task_type: z.string().min(1).max(50).optional().default("generic"),
   title: z.string().min(1).max(200),
-  steps: z.array(z.string().max(500)).max(20).optional().default([]),
+  steps: z.array(ExecutableStepSchema).max(20).optional().default([]),
   depends_on: z.array(z.string()).optional().default([]),
   priority: z.number().int().min(1).max(5).optional().default(3),
   phase: z.number().int().min(0).max(99).optional(),
   params: z.record(z.string(), z.unknown()).optional().default({}),
+  acceptance: AcceptanceSchema.optional(),
+  allowed_scope: z.array(z.string().max(200)).optional().default([]),
   // Legacy fields (accepted but not required)
   acceptance_criteria: z.array(z.string()).optional().default([]),
   description: z.string().max(2000).optional().default(""),
@@ -33,6 +51,8 @@ export const DirectiveV1Schema = z.object({
   directive_schema_version: z.string().optional().default("v1"),
   objective: z.string().min(10).max(500),
   context_summary: z.string().max(2000).optional().default(""),
+  scope_type: z.enum(["product", "infra", "mixed"]).optional().default("product"),
+  allowed_scope: z.array(z.string().max(200)).optional().default([]),
   risks: z.array(RiskSchema).min(1, "Se requiere al menos 1 riesgo"),
   tasks_to_create: z.array(TaskToCreateSchema).min(1, "tasks_to_create no puede estar vacío"),
   required_requests: z.array(RequiredRequestSchema).optional().default([]),
@@ -86,7 +106,53 @@ export function taskHash(task: Partial<TaskToCreate> & { title: string }, direct
 
 // ─── Validar + normalizar ─────────────────────────────────────────
 
-/** Valida y normaliza una directiva. Genera task_ids si faltan. */
+// ─── Reglas duras del planner ────────────────────────────────────
+
+const MIN_TASKS_PRODUCT = 4;
+
+/** Valida scope coherente: tasks de producto no tocan infra */
+function validateScope(directive: DirectiveV1): string[] {
+  const errors: string[] = [];
+  const scopeType = directive.scope_type || "product";
+
+  // Regla: producto necesita minimo MIN_TASKS_PRODUCT tasks
+  if (scopeType === "product" && directive.tasks_to_create.length < MIN_TASKS_PRODUCT) {
+    errors.push(`scope_type=product requiere minimo ${MIN_TASKS_PRODUCT} tasks, tiene ${directive.tasks_to_create.length}`);
+  }
+
+  // Regla: cada task de producto debe tener acceptance
+  if (scopeType === "product") {
+    for (const task of directive.tasks_to_create) {
+      if (!task.acceptance) {
+        errors.push(`task "${task.title}" no tiene acceptance (expected_files + checks obligatorios para producto)`);
+      }
+      // Regla: steps deben ser ejecutables {name, cmd}, no strings
+      if (task.steps.length === 0) {
+        errors.push(`task "${task.title}" no tiene steps ejecutables [{name, cmd}]`);
+      }
+    }
+  }
+
+  // Regla: scope_type=product no puede tener allowed_scope con paths de infra
+  if (scopeType === "product") {
+    const infraPatterns = ["scripts/", "db/migrations/", "executor", "runner"];
+    const allScopes = [
+      ...(directive.allowed_scope || []),
+      ...directive.tasks_to_create.flatMap((t) => t.allowed_scope || []),
+    ];
+    for (const scope of allScopes) {
+      for (const pattern of infraPatterns) {
+        if (scope.includes(pattern)) {
+          errors.push(`scope_violation: scope_type=product pero allowed_scope contiene "${scope}" (infra)`);
+        }
+      }
+    }
+  }
+
+  return errors;
+}
+
+/** Valida y normaliza una directiva. Genera task_ids si faltan. Aplica reglas duras. */
 export function validateDirective(raw: unknown): { ok: true; data: DirectiveV1 } | { ok: false; error: string } {
   const result = DirectiveV1Schema.safeParse(raw);
   if (!result.success) {
@@ -101,6 +167,12 @@ export function validateDirective(raw: unknown): { ok: true; data: DirectiveV1 }
     if (!task.task_id) {
       task.task_id = `T-GPT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     }
+  }
+
+  // Reglas duras del planner
+  const scopeErrors = validateScope(directive);
+  if (scopeErrors.length > 0) {
+    return { ok: false, error: `planner_guardrail_failed: ${scopeErrors.join("; ")}` };
   }
 
   return { ok: true, data: directive };
