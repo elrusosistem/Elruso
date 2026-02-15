@@ -4,6 +4,39 @@ Registro de deploys y cambios del sistema El Ruso.
 
 ---
 
+## 2026-02-15 — Fix: eliminar falsos positivos de tasks (NOOP guardrail)
+
+### Resumen
+El runner marcaba todas las tasks como DONE aunque no produjeran ningun cambio. Tasks de GPT terminaban con status=done, before_sha==after_sha, 0 cambios de codigo, y encima registraba file_changes falsos del commit anterior. Este fix elimina los 3 problemas.
+
+### Archivos modificados
+- `scripts/runner_local.sh` — 3 fixes:
+  - **Fix A (NOOP guardrail)**: si before_sha==after_sha y no hubo custom steps → status=failed con "NOOP: no changes / no side-effects"
+  - **Fix B (file_changes falsos)**: eliminado fallback `git diff HEAD~1 HEAD` cuando before==after; file_changes queda vacio
+  - **Fix C (pre-validacion)**: tasks con directive_id fallan inmediatamente con "no_actionable_steps" porque el runner no tiene handler para ejecutarlas
+- `apps/api/src/activity/activityBuilder.ts` — agregado `task_noop_detected` a narrativas ("Tarea sin efecto detectada"), plurales, y clasificado como type=error
+- `apps/api/src/__tests__/activity.test.ts` — 1 test nuevo para task_noop_detected (narrativa + type + plural)
+
+### Archivos nuevos
+- `scripts/__tests__/test_runner_noop.sh` — 8 tests bash unitarios para logica NOOP: directive detection, NOOP con SHA iguales, no-NOOP con SHA distintos, no-NOOP con custom steps, file_changes vacio/lleno
+
+### Impacto funcional
+- Tasks de GPT (con directive_id) ahora fallan inmediatamente con "no_actionable_steps" en vez de fingir que se ejecutaron
+- Tasks de diagnostico sin cambios de codigo ahora fallan con "NOOP" en vez de marcarse done
+- file_changes ya no miente mostrando el diff del commit anterior
+- Nuevo decision event `task_noop_detected` en decisions_log y activity stream
+
+### Riesgos / TODOs
+- Todas las tasks de GPT van a fallar hasta que el runner tenga un motor de ejecucion real (esto es correcto — antes fallaban silenciosamente)
+- Tasks manuales de diagnostico sin directive_id siguen ejecutando los 3 checks pero ahora fallan como NOOP si no producen cambios
+
+### Verificacion
+- 8/8 tests bash passed (`scripts/__tests__/test_runner_noop.sh`)
+- 120 tests vitest passed (6 activity, 42 directive_v1, +resto)
+- types build OK, api build OK, web build OK
+
+---
+
 ## 2026-02-15 — Hardening: directive apply dedup + observability + DB constraint
 
 ### Causa raiz

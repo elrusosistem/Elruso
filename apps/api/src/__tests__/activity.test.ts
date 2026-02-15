@@ -73,6 +73,7 @@ describe("buildActivityStream", () => {
       { key: "wizard_completed", narrative: "Configuracion inicial completada", type: "system" },
       { key: "directive_approve", narrative: "Plan aprobado por el usuario", type: "plan" },
       { key: "task_failed", narrative: "Una tarea fallo", type: "error" },
+      { key: "task_noop_detected", narrative: "Tarea sin efecto detectada", type: "error" },
     ];
 
     for (const c of cases) {
@@ -81,5 +82,18 @@ describe("buildActivityStream", () => {
       expect(result[0].narrative, `narrative for ${c.key}`).toBe(c.narrative);
       expect(result[0].type, `type for ${c.key}`).toBe(c.type);
     }
+  });
+
+  it("groups multiple task_noop_detected events with plural narrative", () => {
+    const base = new Date("2025-01-01T00:00:00Z").getTime();
+    const rows: DecisionLog[] = [
+      makeRow({ decision_key: "task_noop_detected", created_at: new Date(base).toISOString() }),
+      makeRow({ decision_key: "task_noop_detected", created_at: new Date(base + 5_000).toISOString() }),
+    ];
+    const result = buildActivityStream(rows, 50);
+    expect(result).toHaveLength(1);
+    expect(result[0].count).toBe(2);
+    expect(result[0].narrative).toBe("2 tareas sin efecto detectadas");
+    expect(result[0].type).toBe("error");
   });
 });

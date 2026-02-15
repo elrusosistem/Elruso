@@ -132,8 +132,57 @@ run_step() {
 process_task() {
   local task_id="$1"
   local task_title="$2"
+  local task_directive_id="$3"
 
   log "=== Procesando: ${task_id} — ${task_title} (project: ${CURRENT_PROJECT_ID}) ==="
+
+  # ─── FIX C: Validacion pre-ejecucion ──────────────────────────────
+  # El runner actual solo ejecuta diagnosticos (node -v, pnpm -v, git head).
+  # Si la task viene de una directiva GPT, no tiene handler real → fail rapido.
+  if [ -n "$task_directive_id" ] && [ "$task_directive_id" != "null" ]; then
+    log "  FAIL: task proviene de directiva ${task_directive_id} pero runner no tiene handler"
+    log "  El runner solo ejecuta diagnosticos — no puede cumplir el objetivo de la task"
+
+    # Crear run para registrar el intento
+    local branch="" before_sha=""
+    branch=$(git -C "$ROOT" branch --show-current 2>/dev/null || echo "unknown")
+    before_sha=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
+    local run_response="" run_id=""
+    run_response=$(api_post_scoped "/runs" "{
+      \"task_id\": \"${task_id}\",
+      \"branch\": \"${branch}\",
+      \"commit_hash\": \"${before_sha}\"
+    }")
+    run_id=$(echo "$run_response" | jq -r '.data.id // empty' 2>/dev/null || echo "")
+
+    if [ -n "$run_id" ]; then
+      run_step "$run_id" "pre-validation" "echo 'FAILED: no_actionable_steps — runner has no handler for directive tasks'" > /dev/null 2>&1
+
+      local escaped_noop_summary=""
+      escaped_noop_summary=$(echo "FAILED: no_actionable_steps. Task ${task_id} requires execution handler. Directive: ${task_directive_id}." | jq -Rs '.' 2>/dev/null || echo '""')
+
+      api_patch_scoped "/runs/${run_id}" "{
+        \"status\": \"failed\",
+        \"summary\": ${escaped_noop_summary},
+        \"file_changes\": []
+      }" > /dev/null 2>&1 || true
+    fi
+
+    # Log decision: task_noop_detected
+    api_post_scoped "/ops/decisions" "{
+      \"source\": \"runner\",
+      \"decision_key\": \"task_noop_detected\",
+      \"decision_value\": {\"task_id\": \"${task_id}\", \"reason\": \"no_actionable_steps\", \"directive_id\": \"${task_directive_id}\"},
+      \"run_id\": \"${run_id:-}\"
+    }" > /dev/null 2>&1 || true
+
+    # Marcar task como failed (no requeue — no tiene sentido reintentar)
+    api_patch_scoped "/ops/tasks/${task_id}" "{\"status\":\"failed\",\"last_error\":\"no_actionable_steps: runner has no handler for directive tasks\",\"finished_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > /dev/null 2>&1 || true
+    log "  task -> FAILED (no_actionable_steps)"
+    log "=== Fin: ${task_id} ==="
+    return 1
+  fi
 
   # 1. Capturar BEFORE_SHA
   local branch="" before_sha=""
@@ -158,9 +207,10 @@ process_task() {
 
   log "  run creado: ${run_id} (before_sha: ${before_sha})"
 
-  # 3. Ejecutar steps
+  # 3. Ejecutar steps de diagnostico
   local all_ok=true
   local ec=""
+  local custom_steps_ran=false
 
   ec=$(run_step "$run_id" "version-node" "node -v")
   [ "$ec" -ne 0 ] 2>/dev/null && all_ok=false
@@ -171,20 +221,51 @@ process_task() {
   ec=$(run_step "$run_id" "git-head" "git -C ${ROOT} rev-parse --short HEAD")
   [ "$ec" -ne 0 ] 2>/dev/null && all_ok=false
 
+  # TODO: Aqui irian custom steps cuando el runner tenga un motor de ejecucion
+
   # 4. Capturar AFTER_SHA
   local after_sha=""
   after_sha=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
   log "  after_sha: ${after_sha}"
 
-  # 5. Generar file_changes via git diff
+  # ─── FIX A: Guardrail NOOP ────────────────────────────────────────
+  # Si before_sha == after_sha y no hubo custom steps → NOOP
+  if [ "$before_sha" = "$after_sha" ] && [ "$custom_steps_ran" = false ]; then
+    log "  NOOP detectado: before_sha == after_sha (${before_sha}) y sin custom steps"
+
+    local escaped_noop_summary=""
+    escaped_noop_summary=$(echo "NOOP: no changes detected. SHA: ${before_sha}..${after_sha}. Task ${task_id} produced no side-effects." | jq -Rs '.' 2>/dev/null || echo '""')
+
+    api_patch_scoped "/runs/${run_id}" "{
+      \"status\": \"failed\",
+      \"summary\": ${escaped_noop_summary},
+      \"file_changes\": []
+    }" > /dev/null 2>&1 || true
+
+    # Log decision: task_noop_detected
+    api_post_scoped "/ops/decisions" "{
+      \"source\": \"runner\",
+      \"decision_key\": \"task_noop_detected\",
+      \"decision_value\": {\"task_id\": \"${task_id}\", \"reason\": \"NOOP\", \"before_sha\": \"${before_sha}\", \"after_sha\": \"${after_sha}\"},
+      \"run_id\": \"${run_id}\"
+    }" > /dev/null 2>&1 || true
+
+    # Marcar task como failed
+    api_patch_scoped "/ops/tasks/${task_id}" "{\"status\":\"failed\",\"last_error\":\"NOOP: no changes / no side-effects\",\"finished_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > /dev/null 2>&1 || true
+    log "  task -> FAILED (NOOP)"
+    log "=== Fin: ${task_id} ==="
+    return 1
+  fi
+
+  # ─── FIX B: file_changes solo con cambios reales ──────────────────
+  # Si before_sha == after_sha → file_changes vacio (NO usar fallback HEAD~1)
   local file_changes_json="[]"
   local diff_output=""
 
   if [ "$before_sha" != "unknown" ] && [ "$after_sha" != "unknown" ] && [ "$before_sha" != "$after_sha" ]; then
     diff_output=$(git -C "$ROOT" diff --name-status "${before_sha}" "${after_sha}" 2>/dev/null || echo "")
-  else
-    diff_output=$(git -C "$ROOT" diff --name-status HEAD~1 HEAD 2>/dev/null || echo "")
   fi
+  # ELIMINADO: fallback con git diff HEAD~1 HEAD que registraba cambios del commit anterior
 
   if [ -n "$diff_output" ]; then
     local fc_tmp=""
@@ -211,8 +292,8 @@ process_task() {
     diffstat=$(git -C "$ROOT" diff --stat "${before_sha}" "${after_sha}" 2>/dev/null || echo "0 files changed")
     raw_patch=$(git -C "$ROOT" diff "${before_sha}" "${after_sha}" 2>/dev/null || echo "")
   else
-    diffstat=$(git -C "$ROOT" diff --stat HEAD~1 HEAD 2>/dev/null || echo "0 files changed")
-    raw_patch=$(git -C "$ROOT" diff HEAD~1 HEAD 2>/dev/null || echo "")
+    diffstat="0 files changed"
+    raw_patch=""
   fi
 
   if [ -n "$raw_patch" ]; then
@@ -411,15 +492,18 @@ run_once() {
 
   task_title=$(echo "$claim_response" | jq -r '.data.title // empty' 2>/dev/null || echo "")
 
-  # Extract project_id from claim response for scoped calls
+  # Extract project_id and directive_id from claim response
   CURRENT_PROJECT_ID=$(echo "$claim_response" | jq -r '.data.project_id // empty' 2>/dev/null || echo "")
   if [ -z "$CURRENT_PROJECT_ID" ]; then
     CURRENT_PROJECT_ID="00000000-0000-4000-8000-000000000001"
   fi
 
-  log "Claimed: ${task_id} — ${task_title} (project: ${CURRENT_PROJECT_ID})"
+  local task_directive_id=""
+  task_directive_id=$(echo "$claim_response" | jq -r '.data.directive_id // empty' 2>/dev/null || echo "")
 
-  process_task "$task_id" "$task_title"
+  log "Claimed: ${task_id} — ${task_title} (project: ${CURRENT_PROJECT_ID}, directive: ${task_directive_id:-none})"
+
+  process_task "$task_id" "$task_title" "${task_directive_id:-}"
 }
 
 if [ "$LOOP_MODE" = true ]; then
