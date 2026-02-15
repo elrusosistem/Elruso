@@ -249,6 +249,52 @@ describe("taskHash", () => {
   });
 });
 
+// ─── taskHash dedup behavior ───────────────────────────────────
+
+describe("taskHash dedup behavior", () => {
+  it("same task with same objective → same hash (intra-directive dedup works)", () => {
+    const task = { title: "Auditar CI pipeline", steps: ["Revisar config", "Optimizar"] };
+    const objective = "Mejorar CI/CD";
+    const h1 = taskHash(task, objective);
+    const h2 = taskHash(task, objective);
+    expect(h1).toBe(h2);
+  });
+
+  it("same task with different objective → different hash (cross-directive safe)", () => {
+    const task = { title: "Auditar CI pipeline", steps: ["Revisar config", "Optimizar"] };
+    const h1 = taskHash(task, "Mejorar CI/CD");
+    const h2 = taskHash(task, "Refactorizar infraestructura");
+    expect(h1).not.toBe(h2);
+  });
+
+  it("different tasks in same plan → different hashes", () => {
+    const obj = "Objetivo compartido del plan";
+    const task1 = { title: "Task A del plan", steps: ["Hacer A"] };
+    const task2 = { title: "Task B del plan", steps: ["Hacer B"] };
+    expect(taskHash(task1, obj)).not.toBe(taskHash(task2, obj));
+  });
+
+  it("identical tasks in same plan → same hash (dedup within directive)", () => {
+    const obj = "Objetivo compartido";
+    const task = { title: "Task duplicada", steps: ["Paso 1"] };
+    expect(taskHash(task, obj)).toBe(taskHash(task, obj));
+  });
+
+  it("params affect hash", () => {
+    const obj = "Objetivo";
+    const task1 = { title: "Task", steps: [], params: { env: "prod" } };
+    const task2 = { title: "Task", steps: [], params: { env: "staging" } };
+    expect(taskHash(task1, obj)).not.toBe(taskHash(task2, obj));
+  });
+
+  it("task_type affects hash", () => {
+    const obj = "Objetivo";
+    const task1 = { title: "Task", task_type: "feature", steps: [] };
+    const task2 = { title: "Task", task_type: "bugfix", steps: [] };
+    expect(taskHash(task1, obj)).not.toBe(taskHash(task2, obj));
+  });
+});
+
 // ─── canonicalJson ──────────────────────────────────────────────
 
 describe("canonicalJson", () => {

@@ -1148,54 +1148,61 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      // 6. Crear tasks con task_hash dedup
+      // 6. Crear tasks
+      // Dedup scope: solo la directiva-level (payload_hash en paso 4) previene re-apply.
+      // Task-level dedup: solo por task_hash DENTRO de esta misma directiva (previene tasks duplicadas en el mismo plan).
+      // NO bloqueamos tasks de directives distintas — cada plan aprobado debe crear sus tasks.
       const tasksToCreate = (directive.tasks_to_create as unknown[]) || [];
       const directiveObjective = (payloadJson?.objective as string) || (directive.title as string) || "";
       const created: string[] = [];
       const skipped: string[] = [];
+      const seenHashes = new Set<string>();
+
+      // Log apply started
+      logDecision({
+        source: "system",
+        decision_key: "directive_apply_started",
+        decision_value: { directive_id: id, tasks_count: tasksToCreate.length },
+        directive_id: id,
+        project_id: projectId,
+      });
 
       for (const task of tasksToCreate) {
         const t = task as Record<string, unknown>;
-        const taskId = (t.task_id || t.id || `T-GPT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`) as string;
+        const baseTaskId = (t.task_id || t.id || `T-GPT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`) as string;
 
-        // Compute task_hash for dedup
+        // Compute task_hash for intra-directive dedup
         const tHash = computeTaskHash(t as TaskToCreate, directiveObjective);
 
-        // Check if task_hash already exists in DB
-        const { data: existingByHash } = await db
-          .from("ops_tasks")
-          .select("id")
-          .eq("task_hash", tHash)
-          .eq("project_id", projectId)
-          .limit(1);
-
-        if (existingByHash && existingByHash.length > 0) {
-          skipped.push(taskId);
+        // Intra-directive dedup: skip if this exact task already appeared in this plan
+        if (seenHashes.has(tHash)) {
+          skipped.push(baseTaskId);
           logDecision({
             source: "system",
             decision_key: "task_skipped_duplicate",
-            decision_value: { task_id: taskId, existing_task_id: existingByHash[0].id, task_hash: tHash },
+            decision_value: { task_id: baseTaskId, reason: "duplicate_within_directive", task_hash: tHash },
             directive_id: id,
             project_id: projectId,
           });
           continue;
         }
+        seenHashes.add(tHash);
 
-        // Check by task_id — if collision, generate a new unique ID instead of skipping
+        // Resolve task_id collision: if ID exists, generate a new unique one
+        let finalTaskId = baseTaskId;
         const { data: existingById } = await db
           .from("ops_tasks")
           .select("id")
-          .eq("id", taskId)
+          .eq("id", baseTaskId)
           .eq("project_id", projectId)
           .limit(1);
 
-        let finalTaskId = taskId;
         if (existingById && existingById.length > 0) {
           finalTaskId = `T-GPT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
           logDecision({
             source: "system",
             decision_key: "task_id_collision_resolved",
-            decision_value: { original_id: taskId, new_id: finalTaskId, task_hash: tHash },
+            decision_value: { original_id: baseTaskId, new_id: finalTaskId, task_hash: tHash },
             directive_id: id,
             project_id: projectId,
           });
@@ -1238,14 +1245,19 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       }).eq("id", id).eq("project_id", projectId);
 
       // 8. Registrar en decisions_log
-      await db.from("decisions_log").insert({
+      logDecision({
         source: "system",
-        decision_key: "directive_apply",
-        decision_value: { directive_id: id, tasks_created: created, tasks_skipped: skipped },
+        decision_key: "directive_apply_finished",
+        decision_value: {
+          directive_id: id,
+          tasks_created: created,
+          tasks_skipped: skipped,
+          tasks_created_count: created.length,
+          tasks_skipped_count: skipped.length,
+        },
         context: { payload_hash: directive.payload_hash || null },
         directive_id: id,
         project_id: projectId,
-        created_at: now,
       });
 
       return {
