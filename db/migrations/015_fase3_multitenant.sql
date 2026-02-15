@@ -92,11 +92,11 @@ CREATE INDEX IF NOT EXISTS idx_ops_requests_project_status
 CREATE INDEX IF NOT EXISTS idx_decisions_log_project_created
   ON decisions_log (project_id, created_at);
 
-CREATE INDEX IF NOT EXISTS idx_run_logs_project_created
-  ON run_logs (project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_run_logs_project_started
+  ON run_logs (project_id, started_at);
 
-CREATE INDEX IF NOT EXISTS idx_runner_heartbeats_project_created
-  ON runner_heartbeats (project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_runner_heartbeats_project_seen
+  ON runner_heartbeats (project_id, last_seen_at);
 
 CREATE INDEX IF NOT EXISTS idx_run_steps_project_run
   ON run_steps (project_id, run_id);
