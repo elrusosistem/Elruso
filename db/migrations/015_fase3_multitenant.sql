@@ -35,6 +35,12 @@ ALTER TABLE objectives
 ALTER TABLE runner_heartbeats
   ADD COLUMN IF NOT EXISTS project_id UUID NOT NULL DEFAULT '00000000-0000-4000-8000-000000000001';
 
+ALTER TABLE run_steps
+  ADD COLUMN IF NOT EXISTS project_id UUID NOT NULL DEFAULT '00000000-0000-4000-8000-000000000001';
+
+ALTER TABLE file_changes
+  ADD COLUMN IF NOT EXISTS project_id UUID NOT NULL DEFAULT '00000000-0000-4000-8000-000000000001';
+
 -- ─── 3. ops_requests: cambiar PK a (id, project_id) ───────────────────
 
 ALTER TABLE ops_requests
@@ -91,6 +97,12 @@ CREATE INDEX IF NOT EXISTS idx_run_logs_project_created
 
 CREATE INDEX IF NOT EXISTS idx_runner_heartbeats_project_created
   ON runner_heartbeats (project_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_run_steps_project_run
+  ON run_steps (project_id, run_id);
+
+CREATE INDEX IF NOT EXISTS idx_file_changes_project_run
+  ON file_changes (project_id, run_id);
 
 -- ─── Track migration ─────────────────────────────────────────────────
 INSERT INTO _migrations (filename, applied_at)

@@ -54,31 +54,35 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { id: string } }>(
     "/runs/:id",
     async (request): Promise<ApiResponse<RunDetail>> => {
+      const projectId = getProjectIdOrDefault(request);
       const { id } = request.params;
       const db = getDb();
 
-      // Buscar run
+      // Buscar run (scoped by project_id)
       const { data: run, error: runError } = await db
         .from("run_logs")
         .select("*")
         .eq("id", id)
+        .eq("project_id", projectId)
         .single();
 
       if (runError || !run) {
         return { ok: false, error: runError?.message ?? "Run no encontrado" };
       }
 
-      // Buscar steps y file_changes en paralelo
+      // Buscar steps y file_changes en paralelo (scoped)
       const [stepsResult, filesResult] = await Promise.all([
         db
           .from("run_steps")
           .select("*")
           .eq("run_id", id)
+          .eq("project_id", projectId)
           .order("started_at", { ascending: true }),
         db
           .from("file_changes")
           .select("*")
           .eq("run_id", id)
+          .eq("project_id", projectId)
           .order("path", { ascending: true }),
       ]);
 
@@ -162,6 +166,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
         exit_code: exit_code ?? null,
         output_excerpt: output_excerpt ? redact(output_excerpt, getAllValues(projectId)) : null,
         finished_at,
+        project_id: projectId,
       })
       .select()
       .single();
@@ -204,6 +209,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
       .from("run_logs")
       .update(updates)
       .eq("id", id)
+      .eq("project_id", projectId)
       .select()
       .single();
 
@@ -219,6 +225,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
         path: fc.path,
         change_type: fc.change_type,
         diffstat: fc.diffstat ?? null,
+        project_id: projectId,
       }));
       await db.from("file_changes").insert(rows);
     }
@@ -264,11 +271,12 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
 
     const db = getDb();
 
-    // 1. Verify run exists
+    // 1. Verify run exists (scoped by project_id)
     const { data: run, error: runErr } = await db
       .from("run_logs")
       .select("id, task_id")
       .eq("id", id)
+      .eq("project_id", projectId)
       .single();
 
     if (runErr || !run) {
@@ -300,7 +308,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
     const artifactPath = `reports/runs/${id}/patch_redacted.diff`;
 
     // 5. Update run_logs.artifact_path
-    await db.from("run_logs").update({ artifact_path: artifactPath }).eq("id", id);
+    await db.from("run_logs").update({ artifact_path: artifactPath }).eq("id", id).eq("project_id", projectId);
 
     // 6. Insert file_change with diffstat
     await db.from("file_changes").insert({
@@ -308,6 +316,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
       path: "__GIT_DIFF__",
       change_type: "modified",
       diffstat: safeDiffstat || "0 files changed",
+      project_id: projectId,
     });
 
     // 7. Decision log
