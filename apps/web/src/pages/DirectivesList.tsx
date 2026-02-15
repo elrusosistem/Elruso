@@ -96,6 +96,7 @@ export function DirectivesList() {
   const [gptMessage, setGptMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [canPlan, setCanPlan] = useState(true);
   const [planBlockReason, setPlanBlockReason] = useState("");
+  const [applyStatus, setApplyStatus] = useState<Record<string, { type: "ok" | "error" | "loading"; text: string }>>({});
   const [mode] = useUiMode();
   const isOp = mode === "operator";
 
@@ -442,17 +443,42 @@ export function DirectivesList() {
                     <GlowButton
                       variant="primary"
                       size="sm"
+                      disabled={applyStatus[selectedDir.id]?.type === "loading"}
                       onClick={async () => {
                         if (isOp) {
-                          // Operator: approve + apply in one click
-                          await updateStatus(selectedDir.id, "APPROVED");
-                          await applyDirective(selectedDir.id);
+                          const dirId = selectedDir.id;
+                          try {
+                            setApplyStatus((s) => ({ ...s, [dirId]: { type: "loading", text: "Aprobando y aplicando..." } }));
+                            await updateStatus(dirId, "APPROVED");
+                            const response = await apiFetch(`/api/ops/directives/${dirId}/apply`, { method: "POST" });
+                            const data: ApiResponse<ApplyResult> = await response.json();
+                            if (data.ok && data.data) {
+                              const r = data.data;
+                              if (r.idempotent) {
+                                setApplyStatus((s) => ({ ...s, [dirId]: { type: "ok", text: "Este plan ya fue aplicado anteriormente." } }));
+                              } else if (r.blocked_by_requests) {
+                                setApplyStatus((s) => ({ ...s, [dirId]: { type: "error", text: `Bloqueado: faltan datos (${r.missing_requests.join(", ")})` } }));
+                              } else if (r.tasks_created === 0 && r.tasks_skipped > 0) {
+                                setApplyStatus((s) => ({ ...s, [dirId]: { type: "error", text: `${r.tasks_skipped} tarea(s) duplicada(s), 0 creadas. Las tareas ya existen de un plan anterior.` } }));
+                              } else {
+                                const parts: string[] = [`${r.tasks_created} tarea(s) creada(s)`];
+                                if (r.tasks_skipped > 0) parts.push(`${r.tasks_skipped} duplicada(s)`);
+                                setApplyStatus((s) => ({ ...s, [dirId]: { type: "ok", text: parts.join(", ") } }));
+                              }
+                              fetchDirectives();
+                            } else {
+                              setApplyStatus((s) => ({ ...s, [dirId]: { type: "error", text: `Error: ${data.error}` } }));
+                            }
+                          } catch (e: unknown) {
+                            const msg = e instanceof Error ? e.message : "Error de red";
+                            setApplyStatus((s) => ({ ...s, [dirId]: { type: "error", text: msg } }));
+                          }
                         } else {
                           updateStatus(selectedDir.id, "APPROVED");
                         }
                       }}
                     >
-                      {isOp ? "Aprobar y ejecutar" : "Aprobar"}
+                      {applyStatus[selectedDir.id]?.type === "loading" ? "Aplicando..." : isOp ? "Aprobar y ejecutar" : "Aprobar"}
                     </GlowButton>
                     <GlowButton
                       variant="danger"
@@ -486,10 +512,51 @@ export function DirectivesList() {
                   </div>
                 )}
 
-                {/* Operator: APPROVED state — show confirmation, no extra button */}
+                {/* Operator: APPROVED state — show result + retry button */}
                 {selectedDir.status === "APPROVED" && isOp && (
-                  <div className="pt-4 border-t border-[rgba(148,163,184,0.08)]">
-                    <p className="text-sm text-green-400">Plan aprobado. Las tareas se estan creando.</p>
+                  <div className="pt-4 border-t border-[rgba(148,163,184,0.08)] space-y-2">
+                    {applyStatus[selectedDir.id] ? (
+                      <p className={`text-sm ${applyStatus[selectedDir.id].type === "ok" ? "text-green-400" : applyStatus[selectedDir.id].type === "error" ? "text-yellow-400" : "text-slate-400"}`}>
+                        {applyStatus[selectedDir.id].text}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-yellow-400">Plan aprobado pero no aplicado. Usa el boton para crear las tareas.</p>
+                    )}
+                    <GlowButton
+                      variant="primary"
+                      size="sm"
+                      disabled={applyStatus[selectedDir.id]?.type === "loading"}
+                      onClick={async () => {
+                        const dirId = selectedDir.id;
+                        try {
+                          setApplyStatus((s) => ({ ...s, [dirId]: { type: "loading", text: "Aplicando..." } }));
+                          const response = await apiFetch(`/api/ops/directives/${dirId}/apply`, { method: "POST" });
+                          const data: ApiResponse<ApplyResult> = await response.json();
+                          if (data.ok && data.data) {
+                            const r = data.data;
+                            if (r.idempotent) {
+                              setApplyStatus((s) => ({ ...s, [dirId]: { type: "ok", text: "Este plan ya fue aplicado." } }));
+                            } else if (r.blocked_by_requests) {
+                              setApplyStatus((s) => ({ ...s, [dirId]: { type: "error", text: `Bloqueado: faltan datos (${r.missing_requests.join(", ")})` } }));
+                            } else if (r.tasks_created === 0 && r.tasks_skipped > 0) {
+                              setApplyStatus((s) => ({ ...s, [dirId]: { type: "error", text: `${r.tasks_skipped} tarea(s) duplicada(s). Las tareas ya existen.` } }));
+                            } else {
+                              const parts: string[] = [`${r.tasks_created} tarea(s) creada(s)`];
+                              if (r.tasks_skipped > 0) parts.push(`${r.tasks_skipped} duplicada(s)`);
+                              setApplyStatus((s) => ({ ...s, [dirId]: { type: "ok", text: parts.join(", ") } }));
+                            }
+                            fetchDirectives();
+                          } else {
+                            setApplyStatus((s) => ({ ...s, [dirId]: { type: "error", text: `Error: ${data.error}` } }));
+                          }
+                        } catch (e: unknown) {
+                          const msg = e instanceof Error ? e.message : "Error de red";
+                          setApplyStatus((s) => ({ ...s, [dirId]: { type: "error", text: msg } }));
+                        }
+                      }}
+                    >
+                      {applyStatus[selectedDir.id]?.type === "loading" ? "Aplicando..." : "Reintentar aplicar"}
+                    </GlowButton>
                   </div>
                 )}
 

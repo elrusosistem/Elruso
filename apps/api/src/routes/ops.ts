@@ -1181,7 +1181,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
           continue;
         }
 
-        // Also check by task_id (backward compat)
+        // Check by task_id — if collision, generate a new unique ID instead of skipping
         const { data: existingById } = await db
           .from("ops_tasks")
           .select("id")
@@ -1189,22 +1189,22 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
           .eq("project_id", projectId)
           .limit(1);
 
+        let finalTaskId = taskId;
         if (existingById && existingById.length > 0) {
-          skipped.push(taskId);
+          finalTaskId = `T-GPT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
           logDecision({
             source: "system",
-            decision_key: "task_skipped_duplicate",
-            decision_value: { task_id: taskId, reason: "id_exists", task_hash: tHash },
+            decision_key: "task_id_collision_resolved",
+            decision_value: { original_id: taskId, new_id: finalTaskId, task_hash: tHash },
             directive_id: id,
             project_id: projectId,
           });
-          continue;
         }
 
         const { error: insertError } = await db
           .from("ops_tasks")
           .insert({
-            id: taskId,
+            id: finalTaskId,
             phase: (t.phase as number) || 0,
             title: (t.title as string) || "Sin titulo",
             status: "ready",
@@ -1218,11 +1218,11 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
           });
 
         if (!insertError) {
-          created.push(taskId);
+          created.push(finalTaskId);
           logDecision({
             source: "system",
             decision_key: "task_planned",
-            decision_value: { task_id: taskId, title: (t.title as string) || "", task_hash: tHash },
+            decision_value: { task_id: finalTaskId, title: (t.title as string) || "", task_hash: tHash },
             directive_id: id,
             project_id: projectId,
           });
