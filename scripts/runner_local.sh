@@ -23,7 +23,7 @@ POLL_INTERVAL=10
 MAX_BACKOFF=120
 HEARTBEAT_INTERVAL=15
 STUCK_THRESHOLD_SECONDS=900  # 15 min
-RUNNER_ID="${RUNNER_ID:-runner-$(hostname)-$$}"
+RUNNER_ID="${RUNNER_ID:-runner-$(hostname)}"
 
 # Tracking de ultimo heartbeat
 LAST_HEARTBEAT=0
