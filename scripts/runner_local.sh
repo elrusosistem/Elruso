@@ -446,7 +446,16 @@ if [ "$LOOP_MODE" = true ]; then
     fi
 
     loop_count=$((loop_count + 1))
-    sleep "$current_interval"
+
+    # Durante backoff largo, enviar heartbeats cada HEARTBEAT_INTERVAL
+    local remaining=$current_interval
+    while [ "$remaining" -gt 0 ]; do
+      local sleep_chunk=$HEARTBEAT_INTERVAL
+      [ "$sleep_chunk" -gt "$remaining" ] && sleep_chunk=$remaining
+      sleep "$sleep_chunk"
+      remaining=$((remaining - sleep_chunk))
+      send_heartbeat
+    done
   done
 else
   send_heartbeat

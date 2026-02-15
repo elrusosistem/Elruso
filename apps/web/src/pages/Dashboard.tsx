@@ -75,6 +75,11 @@ export function Dashboard() {
   const [paused, setPaused] = useState(false);
   const [pauseLoading, setPauseLoading] = useState(false);
 
+  // VM control
+  const [vmStatus, setVmStatus] = useState<string | null>(null);
+  const [vmConfigured, setVmConfigured] = useState(false);
+  const [vmLoading, setVmLoading] = useState(false);
+
   // Wizard + preconditions
   const [wizardDone, setWizardDone] = useState<boolean | null>(null);
   const [canPlan, setCanPlan] = useState(true);
@@ -94,10 +99,11 @@ export function Dashboard() {
         apiFetch("/api/runs").then((r) => r.json()),
         apiFetch("/api/ops/wizard/status").then((r) => r.json()),
         apiFetch("/api/ops/gpt/preconditions").then((r) => r.json()),
+        apiFetch("/api/ops/runner/vm").then((r) => r.json()),
       );
     }
     Promise.all(promises)
-      .then(([mData, rData, tData, sData, dData, runsData, wizData, preData]: unknown[]) => {
+      .then(([mData, rData, tData, sData, dData, runsData, wizData, preData, vmData]: unknown[]) => {
         const m = mData as ApiResponse<Metrics>;
         const r = rData as ApiResponse<Runner[]>;
         if (m.ok && m.data) setMetrics(m.data);
@@ -131,6 +137,14 @@ export function Dashboard() {
               };
               setPlanBlockReason(pre.data.reasons.map((r: string) => reasonMap[r] ?? r).join(". "));
             }
+          }
+        }
+        // VM status
+        if (vmData) {
+          const vm = vmData as ApiResponse<{ vm_status: string; configured: boolean }>;
+          if (vm.ok && vm.data) {
+            setVmStatus(vm.data.vm_status);
+            setVmConfigured(vm.data.configured);
           }
         }
         // Checklist detection
@@ -210,6 +224,27 @@ export function Dashboard() {
     }
   };
 
+  const vmAction = async (action: "start" | "stop" | "reset") => {
+    setVmLoading(true);
+    setActionMsg(null);
+    try {
+      const res = await apiFetch(`/api/ops/runner/vm/${action}`, { method: "POST" });
+      const data = await res.json();
+      if (data.ok) {
+        const labels: Record<string, string> = { start: "VM arrancando...", stop: "VM apagandose...", reset: "VM reiniciando..." };
+        setActionMsg({ type: "ok", text: labels[action] });
+        // Refresh after a few seconds
+        setTimeout(fetchAll, 5000);
+      } else {
+        setActionMsg({ type: "error", text: data.error ?? "Error" });
+      }
+    } catch {
+      setActionMsg({ type: "error", text: "Error de conexion" });
+    } finally {
+      setVmLoading(false);
+    }
+  };
+
   const refresh = () => {
     setActionMsg(null);
     setLoading(true);
@@ -242,11 +277,39 @@ export function Dashboard() {
           </div>
         )}
 
-        {/* Runner offline alert */}
-        {onlineRunners.length === 0 && runners.length > 0 && (
-          <div className="mb-6 p-4 bg-red-900/40 border border-red-700 rounded-lg flex items-center gap-3">
-            <span className="w-3 h-3 rounded-full bg-red-500 flex-shrink-0" />
-            <span className="text-red-200 font-medium">Agente apagado: no se ejecutan tareas</span>
+        {/* Runner / VM status alert */}
+        {onlineRunners.length === 0 && (
+          <div className="mb-6 p-4 bg-red-900/40 border border-red-700 rounded-lg">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="w-3 h-3 rounded-full bg-red-500 flex-shrink-0" />
+              <span className="text-red-200 font-medium">
+                {vmConfigured && vmStatus !== "running"
+                  ? "VM apagada — el agente no puede correr"
+                  : "Agente offline — no se ejecutan tareas"}
+              </span>
+            </div>
+            {vmConfigured && (
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-xs text-gray-400">VM: {vmStatus ?? "?"}</span>
+                {vmStatus !== "running" ? (
+                  <button
+                    onClick={() => vmAction("start")}
+                    disabled={vmLoading}
+                    className="px-3 py-1 text-xs bg-green-700 hover:bg-green-600 disabled:bg-gray-600 rounded transition-colors"
+                  >
+                    {vmLoading ? "..." : "Prender VM"}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => vmAction("reset")}
+                    disabled={vmLoading}
+                    className="px-3 py-1 text-xs bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-600 rounded transition-colors"
+                  >
+                    {vmLoading ? "..." : "Reiniciar VM"}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -391,10 +454,38 @@ export function Dashboard() {
           )}
         </div>
 
-        {/* Runner detail (compact) */}
-        {runners.length > 0 && (
-          <div>
-            <h3 className="text-lg font-semibold mb-3">Agentes</h3>
+        {/* Agente + VM control */}
+        <div>
+          <h3 className="text-lg font-semibold mb-3">Agente</h3>
+
+          {/* VM control bar */}
+          {vmConfigured && (
+            <div className="flex items-center gap-3 bg-gray-800 rounded-lg px-4 py-3 mb-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${vmStatus === "running" ? "bg-green-500" : vmStatus === "staging" || vmStatus === "stopping" ? "bg-yellow-500 animate-pulse" : "bg-red-500"}`} />
+              <span className="text-sm text-gray-200 flex-1">
+                VM {vmStatus === "running" ? "encendida" : vmStatus === "terminated" || vmStatus === "stopped" ? "apagada" : vmStatus ?? "?"}
+              </span>
+              <div className="flex gap-2">
+                {vmStatus === "running" ? (
+                  <>
+                    <button onClick={() => vmAction("reset")} disabled={vmLoading} className="px-3 py-1 text-xs bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-600 rounded transition-colors">
+                      {vmLoading ? "..." : "Reiniciar"}
+                    </button>
+                    <button onClick={() => vmAction("stop")} disabled={vmLoading} className="px-3 py-1 text-xs bg-red-700 hover:bg-red-600 disabled:bg-gray-600 rounded transition-colors">
+                      {vmLoading ? "..." : "Apagar"}
+                    </button>
+                  </>
+                ) : vmStatus === "terminated" || vmStatus === "stopped" ? (
+                  <button onClick={() => vmAction("start")} disabled={vmLoading} className="px-3 py-1 text-xs bg-green-700 hover:bg-green-600 disabled:bg-gray-600 rounded transition-colors">
+                    {vmLoading ? "..." : "Prender"}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {/* Runner heartbeats */}
+          {runners.length > 0 && (
             <div className="space-y-2">
               {[...runners]
                 .sort((a, b) => new Date(b.last_seen_at).getTime() - new Date(a.last_seen_at).getTime())
@@ -409,8 +500,12 @@ export function Dashboard() {
                   </div>
                 ))}
             </div>
-          </div>
-        )}
+          )}
+
+          {!vmConfigured && runners.length === 0 && (
+            <p className="text-sm text-gray-500">Sin agentes registrados.</p>
+          )}
+        </div>
       </div>
     );
   }

@@ -8,6 +8,7 @@ import { decisionsRoutes } from "./routes/decisions.js";
 import { objectivesRoutes } from "./routes/objectives.js";
 import { wizardRoutes } from "./routes/wizard.js";
 import { projectsRoutes } from "./routes/projects.js";
+import { runnerControlRoutes } from "./routes/runner-control.js";
 import { requireAdmin } from "./auth.js";
 
 const app = Fastify({ logger: true });
@@ -39,6 +40,7 @@ await app.register(decisionsRoutes);
 await app.register(objectivesRoutes);
 await app.register(wizardRoutes);
 await app.register(projectsRoutes);
+await app.register(runnerControlRoutes);
 
 const port = Number(process.env.PORT) || 3001;
 const host = process.env.HOST || "0.0.0.0";
