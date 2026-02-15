@@ -770,13 +770,12 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
   // GET /ops/runner/status — Get runner status (considers offline if last_seen > 60s ago)
   // Auto-cleans entries older than 5 min to avoid stale ghost runners
-  app.get("/ops/runner/status", async (request): Promise<ApiResponse<RunnerHeartbeat[]>> => {
-    const projectId = getProjectIdOrDefault(request);
+  // NOTE: Runners are global infrastructure — no project_id filter
+  app.get("/ops/runner/status", async (): Promise<ApiResponse<RunnerHeartbeat[]>> => {
     const db = getDb();
     const { data, error } = await db
       .from("runner_heartbeats")
       .select("*")
-      .eq("project_id", projectId)
       .order("last_seen_at", { ascending: false });
 
     if (error) return { ok: false, error: error.message };
@@ -855,11 +854,10 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       if (status in taskCounts) taskCounts[status]++;
     });
 
-    // 2. Runners online/total
+    // 2. Runners online/total (global — not scoped by project)
     const { data: runnersData, error: runnersError } = await db
       .from("runner_heartbeats")
-      .select("last_seen_at")
-      .eq("project_id", projectId);
+      .select("last_seen_at");
     if (runnersError) return { ok: false, error: runnersError.message };
 
     const now = new Date();
