@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import type { ApiResponse, Objective } from "@elruso/types";
+import { useState, useEffect, useMemo } from "react";
+import type { ApiResponse, Objective, WizardState } from "@elruso/types";
 import { apiFetch } from "../api";
 import { humanizeProfileId } from "../humanize";
 
@@ -11,18 +11,6 @@ interface StepDef {
   type: "textarea" | "radio";
   options?: { value: string; label: string; desc: string }[];
 }
-
-const PROFILE_STEP: StepDef = {
-  key: "profile",
-  title: "Que tipo de proyecto queres configurar?",
-  subtitle: "Esto determina que integraciones y datos va a pedir el sistema.",
-  type: "radio" as const,
-  options: [
-    { value: "open", label: "Abierto", desc: "Para cualquier proyecto. El sistema se adapta a lo que necesites." },
-    { value: "tiendanube", label: "Tiendanube", desc: "E-commerce con Tiendanube." },
-    { value: "waba", label: "WhatsApp API", desc: "Integracion con WhatsApp Business API." },
-  ],
-};
 
 const BASE_STEPS: StepDef[] = [
   {
@@ -86,12 +74,14 @@ const WABA_STEPS: StepDef[] = [
   },
 ];
 
-type Phase = "questions" | "summary" | "result";
+type Phase = "loading" | "already_done" | "questions" | "summary" | "result";
 
 export function StrategyWizard() {
+  const [projectProfile, setProjectProfile] = useState<string>("open");
+  const [wizardDone, setWizardDone] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [phase, setPhase] = useState<Phase>("questions");
+  const [phase, setPhase] = useState<Phase>("loading");
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{
     success: boolean;
@@ -99,15 +89,38 @@ export function StrategyWizard() {
     message: string;
   } | null>(null);
 
-  const selectedProfile = answers.profile ?? "";
+  // Fetch wizard status + project profile on mount
+  useEffect(() => {
+    apiFetch("/api/ops/wizard/status")
+      .then((r) => r.json())
+      .then((data: ApiResponse<WizardState>) => {
+        if (data.ok && data.data) {
+          setProjectProfile(data.data.current_profile ?? "open");
+          if (data.data.has_completed_wizard) {
+            setWizardDone(true);
+            setAnswers((data.data.answers ?? {}) as Record<string, string>);
+            setPhase("already_done");
+          } else {
+            // Pre-fill answers if partially saved
+            if (data.data.answers && Object.keys(data.data.answers).length > 0) {
+              setAnswers(data.data.answers as Record<string, string>);
+            }
+            setPhase("questions");
+          }
+        } else {
+          setPhase("questions");
+        }
+      })
+      .catch(() => setPhase("questions"));
+  }, []);
 
   const steps = useMemo(() => {
-    const all: StepDef[] = [PROFILE_STEP, ...BASE_STEPS];
-    if (selectedProfile === "waba") {
+    const all: StepDef[] = [...BASE_STEPS];
+    if (projectProfile === "waba") {
       all.push(...WABA_STEPS);
     }
     return all;
-  }, [selectedProfile]);
+  }, [projectProfile]);
 
   const step = steps[currentStep];
   const totalSteps = steps.length;
@@ -131,14 +144,13 @@ export function StrategyWizard() {
 
   const handleSubmit = async () => {
     setSaving(true);
-    const profile = selectedProfile || "open";
     try {
-      // 1. Save wizard answers
+      // 1. Save wizard answers (profile comes from project, not body)
       const wizardRes = await apiFetch("/api/ops/wizard/answers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          answers: { ...answers, profile },
+          answers,
           completed: true,
         }),
       });
@@ -161,7 +173,7 @@ export function StrategyWizard() {
         body: JSON.stringify({
           title: answers.what_to_achieve?.trim() ?? "Objetivo principal",
           description: `Como lo hace hoy: ${answers.how_today ?? "—"}. Stack: ${answers.current_stack ?? "—"}`,
-          profile,
+          profile: projectProfile,
         }),
       });
       const objData: ApiResponse<Objective> = await objRes.json();
@@ -202,6 +214,67 @@ export function StrategyWizard() {
       setSaving(false);
     }
   };
+
+  // ── Loading ──
+  if (phase === "loading") {
+    return <div className="p-8 text-gray-400">Cargando...</div>;
+  }
+
+  // ── Already completed: show summary ──
+  if (phase === "already_done") {
+    return (
+      <div className="p-8 max-w-xl mx-auto">
+        <h2 className="text-2xl font-bold mb-2">Estrategia configurada</h2>
+        <p className="text-sm text-gray-400 mb-6">
+          Ya completaste la configuracion inicial para este proyecto.
+        </p>
+
+        <div className="space-y-4 mb-8">
+          <div className="bg-gray-800 rounded-lg p-4">
+            <div className="text-xs text-gray-500 uppercase mb-1">Perfil</div>
+            <div className="text-sm text-blue-400 font-medium">{humanizeProfileId(projectProfile)}</div>
+          </div>
+          {steps.map((s) => {
+            const val = answers[s.key];
+            if (!val) return null;
+            return (
+              <div key={s.key} className="bg-gray-800 rounded-lg p-4">
+                <div className="text-xs text-gray-500 uppercase mb-1">
+                  {s.title.replace("?", "")}
+                </div>
+                <div className="text-sm text-gray-200">
+                  {s.options
+                    ? s.options.find((o) => o.value === val)?.label ?? val
+                    : val}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex gap-3">
+          <a
+            href="#/objectives"
+            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition-colors"
+          >
+            Ver objetivos
+          </a>
+          <a
+            href="#/requests"
+            className="px-5 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
+          >
+            Configuracion
+          </a>
+          <a
+            href="#/"
+            className="px-5 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
+          >
+            Inicio
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   // ── Result screen ──
   if (phase === "result" && result) {
@@ -251,6 +324,10 @@ export function StrategyWizard() {
       <div className="p-8 max-w-xl mx-auto">
         <h2 className="text-2xl font-bold mb-6">Resumen</h2>
         <div className="space-y-4 mb-8">
+          <div className="bg-gray-800 rounded-lg p-4">
+            <div className="text-xs text-gray-500 uppercase mb-1">Perfil del proyecto</div>
+            <div className="text-sm text-blue-400 font-medium">{humanizeProfileId(projectProfile)}</div>
+          </div>
           {steps.map((s) => (
             <div key={s.key} className="bg-gray-800 rounded-lg p-4">
               <div className="text-xs text-gray-500 uppercase mb-1">
@@ -287,6 +364,12 @@ export function StrategyWizard() {
   // ── Questions screen ──
   return (
     <div className="p-8 max-w-xl mx-auto">
+      {/* Profile badge (read-only, from project) */}
+      <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-blue-900/30 border border-blue-700 rounded text-sm">
+        <span className="text-blue-400 font-medium">Perfil:</span>
+        <span className="text-white">{humanizeProfileId(projectProfile)}</span>
+      </div>
+
       {/* Progress bar */}
       <div className="flex items-center gap-2 mb-8">
         {steps.map((_, i) => (
@@ -303,14 +386,6 @@ export function StrategyWizard() {
       <div className="text-xs text-gray-500 mb-2">
         Paso {currentStep + 1} de {totalSteps}
       </div>
-
-      {/* Selected profile indicator (after profile step) */}
-      {currentStep > 0 && selectedProfile && (
-        <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-blue-900/30 border border-blue-700 rounded text-sm">
-          <span className="text-blue-400 font-medium">Perfil:</span>
-          <span className="text-white">{humanizeProfileId(selectedProfile)}</span>
-        </div>
-      )}
 
       {/* Question */}
       <h2 className="text-xl font-bold mb-2">{step.title}</h2>

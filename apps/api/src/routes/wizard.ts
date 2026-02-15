@@ -28,7 +28,7 @@ function logDecision(opts: {
 const DEFAULT_WIZARD: WizardState = {
   has_completed_wizard: false,
   answers: {},
-  current_profile: "tiendanube",
+  current_profile: "open",
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 };
@@ -55,7 +55,7 @@ export async function wizardRoutes(app: FastifyInstance): Promise<void> {
         data: {
           has_completed_wizard: data.has_completed_wizard,
           answers: data.answers ?? {},
-          current_profile: data.current_profile ?? "tiendanube",
+          current_profile: data.current_profile ?? "open",
           created_at: data.created_at,
           updated_at: data.updated_at,
         },
@@ -91,8 +91,14 @@ export async function wizardRoutes(app: FastifyInstance): Promise<void> {
 
       const now = new Date().toISOString();
       const completed = body.completed === true;
-      const profile =
-        (body.answers.profile as string) ?? "tiendanube";
+
+      // Profile comes from the project, NOT from wizard answers
+      const { data: projectData } = await db
+        .from("projects")
+        .select("profile")
+        .eq("id", projectId)
+        .single();
+      const profile = projectData?.profile ?? "open";
 
       const row = {
         project_id: projectId,

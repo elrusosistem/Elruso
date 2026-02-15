@@ -1,9 +1,42 @@
 import { OnboardingContent } from "../components/OperatorOnboardingModal";
 
+const HOW_TO_START = [
+  { step: "1", title: "Crea un proyecto", desc: "Anda a Proyectos y hace clic en \"Nuevo proyecto\". Elegí un nombre y un perfil (Abierto, Tiendanube o WhatsApp API)." },
+  { step: "2", title: "Completa la estrategia", desc: "Despues de crear el proyecto, el sistema te guia con preguntas simples sobre tu negocio. Si el perfil necesita datos (tokens, claves), te los pide en Configuracion." },
+  { step: "3", title: "Generá tu primer plan", desc: "Con al menos un objetivo activo y los datos configurados, podes generar un plan. El sistema propone mejoras y vos aprobas o rechazas." },
+];
+
+const CONCEPTS: { q: string; a: string }[] = [
+  {
+    q: "Que es un Proyecto?",
+    a: "Un proyecto es tu espacio de trabajo aislado. Cada proyecto tiene su propio perfil, objetivos, configuracion y planes. Podes tener varios proyectos, por ejemplo uno para tu tienda y otro para WhatsApp.",
+  },
+  {
+    q: "Que es un Perfil?",
+    a: "El perfil define que tipo de integracion usa tu proyecto. Hay 3 opciones: \"Abierto\" (cualquier sistema, vos definis el objetivo), \"Tiendanube\" (conectar tienda y automatizar operaciones), y \"WhatsApp API\" (conectar tu WhatsApp Business API y preparar plantillas). El perfil se elige al crear el proyecto y no se puede cambiar despues.",
+  },
+  {
+    q: "Que es un Plan?",
+    a: "Es una propuesta automatica que la IA genera analizando tu proyecto. Incluye tareas concretas como actualizar archivos, configurar integraciones o correr procesos. Vos lo revisas y decides si aprobarlo.",
+  },
+  {
+    q: "Por que pide tokens y datos?",
+    a: "Para conectarse a servicios externos (Tiendanube, WhatsApp, etc.), el sistema necesita tokens de acceso. Son llaves seguras que le permiten operar en tu nombre. Los valores se guardan de forma segura en un vault local, nunca se suben al panel ni al repositorio.",
+  },
+  {
+    q: "Que hace el boton \"Generar plan\"?",
+    a: "Lanza un analisis con IA que revisa el estado de tu proyecto, tus objetivos y los datos disponibles. Si todo esta en orden, genera un plan con tareas. Si falta algo, te avisa que configurar primero.",
+  },
+  {
+    q: "Y si no entiende mi objetivo?",
+    a: "El sistema te hace preguntas de clarificacion si necesita mas contexto. Podes escribir en lenguaje natural, no necesitas ser tecnico. Si algo no queda claro, genera un plan conservador y te pide feedback.",
+  },
+];
+
 const FAQ: { q: string; a: string }[] = [
   {
     q: "Que es el Wizard?",
-    a: "Es una guia inicial que te ayuda a configurar el sistema para tu negocio. Solo se completa una vez. Podes encontrarlo en Definir estrategia.",
+    a: "Es la configuracion inicial de cada proyecto. Te hace preguntas sobre tu negocio para entender que necesitas. Se completa una vez por proyecto. Podes verlo en Estrategia.",
   },
   {
     q: "Que son los Objetivos?",
@@ -12,10 +45,6 @@ const FAQ: { q: string; a: string }[] = [
   {
     q: "Por que no puedo generar un plan?",
     a: "Necesitas: (1) completar la configuracion inicial (wizard), (2) tener al menos un objetivo activo, y (3) configurar los datos requeridos en Configuracion.",
-  },
-  {
-    q: "Que es un Plan?",
-    a: "Es una propuesta automatica de mejoras o tareas. La IA analiza el estado del sistema y sugiere que hacer. Vos lo aprobas o rechazas.",
   },
   {
     q: "Que es una Tarea?",
@@ -47,11 +76,11 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "Por que me pide tokens?",
-    a: "Para conectarse a servicios externos (como Tiendanube o Mercado Libre), el sistema necesita tokens de acceso. Son como llaves seguras que le permiten operar en tu nombre. Los tokens se guardan de forma segura y nunca se comparten. Podes encontrarlos en el panel de administracion de cada servicio.",
+    a: "Para conectarse a servicios externos, el sistema necesita tokens de acceso. Son llaves seguras que le permiten operar en tu nombre. Los tokens se guardan de forma segura y nunca se comparten.",
   },
   {
     q: 'Que significa "No se puede generar plan" y como lo destrabo?',
-    a: "Hay 3 causas comunes: (1) No completaste la configuracion inicial — anda a Definir estrategia y completa el wizard. (2) No hay objetivos activos — anda a Objetivos y activa al menos uno. (3) Faltan datos de configuracion — anda a Configuracion y completa los datos marcados como requeridos.",
+    a: "Hay 3 causas comunes: (1) No completaste la configuracion inicial — anda a Estrategia y completa el wizard. (2) No hay objetivos activos — anda a Objetivos y activa al menos uno. (3) Faltan datos de configuracion — anda a Configuracion y completa los datos marcados como requeridos.",
   },
 ];
 
@@ -86,6 +115,37 @@ export function Help() {
       {/* Reuse onboarding content */}
       <div className="mb-10">
         <OnboardingContent />
+      </div>
+
+      {/* How to start */}
+      <div className="mb-10">
+        <h3 className="text-lg font-semibold mb-4">Como empezar</h3>
+        <div className="space-y-3">
+          {HOW_TO_START.map((item) => (
+            <div key={item.step} className="flex gap-4 bg-gray-800 rounded-lg p-4">
+              <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-indigo-600 text-sm font-bold">
+                {item.step}
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-white mb-1">{item.title}</h4>
+                <p className="text-sm text-gray-400">{item.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Concepts */}
+      <div className="mb-10">
+        <h3 className="text-lg font-semibold mb-4">Conceptos clave</h3>
+        <div className="space-y-4">
+          {CONCEPTS.map((item, i) => (
+            <div key={i} className="bg-gray-800 rounded-lg p-4">
+              <h4 className="text-sm font-medium text-white mb-1">{item.q}</h4>
+              <p className="text-sm text-gray-400">{item.a}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* FAQ */}

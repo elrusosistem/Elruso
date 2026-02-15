@@ -151,6 +151,7 @@ const NAV_ITEMS = [
   { path: "#/decisions", label: "Decisions", match: "#/decisions" },
   { path: "#/requests", label: "Requests", match: "#/requests" },
   { path: "#/projects", label: "Proyectos", match: "#/projects" },
+  { path: "#/strategy-wizard", label: "Estrategia", match: "#/strategy-wizard" },
   { path: "#/setup", label: "Setup", match: "#/setup" },
 ];
 

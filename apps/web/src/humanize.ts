@@ -151,6 +151,7 @@ export const OPERATOR_NAV_LABELS: Record<string, string> = {
   Decisions: "Registro",
   Requests: "Configuracion",
   Proyectos: "Proyectos",
+  Estrategia: "Estrategia",
   Setup: "Setup", // hidden in operator mode
 };
 

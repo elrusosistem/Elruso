@@ -67,25 +67,6 @@ describe("validateWabaToken (mock)", () => {
     vi.restoreAllMocks();
   });
 
-  it("rejects when token is missing", async () => {
-    // Import dynamically to allow mocking
-    const { validateProvider } = await import("../vault.js");
-    // Mock getRequestValues to return phone id
-    vi.doMock("../vault.js", async (importOriginal) => {
-      const original = await importOriginal<typeof import("../vault.js")>();
-      return {
-        ...original,
-        getRequestValues: (id: string) =>
-          id === "REQ-WABA-PHONE" ? { WABA_PHONE_NUMBER_ID: "12345" } : null,
-      };
-    });
-
-    // Call with empty values simulates no token saved — validateProvider will catch it
-    const result = await validateProvider("REQ-WABA-TOKEN");
-    expect(result.ok).toBe(false);
-    expect(result.message).toContain("No hay valores guardados");
-  });
-
   it("validates token against Graph API (success mock)", async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -94,7 +75,6 @@ describe("validateWabaToken (mock)", () => {
     });
     vi.stubGlobal("fetch", mockFetch);
 
-    // We need to test validateWabaToken directly — import vault to get access
     const vault = await import("../vault.js");
 
     // Save phone values first so validateWabaToken can find them
@@ -104,6 +84,31 @@ describe("validateWabaToken (mock)", () => {
     const result = await vault.validateProvider("REQ-WABA-TOKEN");
     expect(result.ok).toBe(true);
     expect(result.message).toContain("WABA OK");
+
+    // Verify correct Graph API URL was called
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://graph.facebook.com/v19.0/12345?fields=display_phone_number,verified_name",
+      { headers: { Authorization: "Bearer mock-token" } },
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("returns error on 401 from Graph API", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({}),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const vault = await import("../vault.js");
+    vault.saveRequestValues("REQ-WABA-PHONE", { WABA_PHONE_NUMBER_ID: "12345" });
+    vault.saveRequestValues("REQ-WABA-TOKEN", { WABA_ACCESS_TOKEN: "bad-token" });
+
+    const result = await vault.validateProvider("REQ-WABA-TOKEN");
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("invalido");
 
     vi.unstubAllGlobals();
   });
