@@ -1149,116 +1149,159 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       }
 
       // 6. Crear tasks
-      // Dedup scope: solo la directiva-level (payload_hash en paso 4) previene re-apply.
-      // Task-level dedup: solo por task_hash DENTRO de esta misma directiva (previene tasks duplicadas en el mismo plan).
-      // NO bloqueamos tasks de directives distintas — cada plan aprobado debe crear sus tasks.
+      // REGLA: dedup SOLO dentro de la misma directive (intra-directive).
+      // Cross-directive dedup PROHIBIDO. Cada plan aprobado crea sus tasks.
+      // DB garantiza: UNIQUE(directive_id, task_hash) — concurrencia segura.
       const tasksToCreate = (directive.tasks_to_create as unknown[]) || [];
       const directiveObjective = (payloadJson?.objective as string) || (directive.title as string) || "";
       const created: string[] = [];
       const skipped: string[] = [];
+      let collisionsCount = 0;
       const seenHashes = new Set<string>();
+      const applyStart = Date.now();
 
-      // Log apply started
+      // directive_apply_started — SIEMPRE se emite
       logDecision({
         source: "system",
         decision_key: "directive_apply_started",
-        decision_value: { directive_id: id, tasks_count: tasksToCreate.length },
+        decision_value: { directive_id: id, tasks_count_expected: tasksToCreate.length },
         directive_id: id,
         project_id: projectId,
       });
 
-      for (const task of tasksToCreate) {
-        const t = task as Record<string, unknown>;
-        const baseTaskId = (t.task_id || t.id || `T-GPT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`) as string;
+      try {
+        for (const task of tasksToCreate) {
+          const t = task as Record<string, unknown>;
+          const baseTaskId = (t.task_id || t.id || `T-GPT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`) as string;
 
-        // Compute task_hash for intra-directive dedup
-        const tHash = computeTaskHash(t as TaskToCreate, directiveObjective);
+          // Compute task_hash for intra-directive dedup
+          const tHash = computeTaskHash(t as TaskToCreate, directiveObjective);
 
-        // Intra-directive dedup: skip if this exact task already appeared in this plan
-        if (seenHashes.has(tHash)) {
-          skipped.push(baseTaskId);
-          logDecision({
-            source: "system",
-            decision_key: "task_skipped_duplicate",
-            decision_value: { task_id: baseTaskId, reason: "duplicate_within_directive", task_hash: tHash },
-            directive_id: id,
-            project_id: projectId,
-          });
-          continue;
-        }
-        seenHashes.add(tHash);
+          // Intra-directive dedup (in-memory): skip if this exact task already appeared in this plan
+          if (seenHashes.has(tHash)) {
+            skipped.push(baseTaskId);
+            logDecision({
+              source: "system",
+              decision_key: "task_skipped_dedup_intra_directive",
+              decision_value: { task_id: baseTaskId, directive_id: id, task_hash: tHash },
+              directive_id: id,
+              project_id: projectId,
+            });
+            continue;
+          }
+          seenHashes.add(tHash);
 
-        // Resolve task_id collision: if ID exists, generate a new unique one
-        let finalTaskId = baseTaskId;
-        const { data: existingById } = await db
-          .from("ops_tasks")
-          .select("id")
-          .eq("id", baseTaskId)
-          .eq("project_id", projectId)
-          .limit(1);
+          // Resolve task_id collision with retry (max 3 attempts)
+          let finalTaskId = baseTaskId;
+          const MAX_ID_RETRIES = 3;
+          for (let attempt = 0; attempt < MAX_ID_RETRIES; attempt++) {
+            const { data: existingById } = await db
+              .from("ops_tasks")
+              .select("id")
+              .eq("id", finalTaskId)
+              .eq("project_id", projectId)
+              .limit(1);
 
-        if (existingById && existingById.length > 0) {
-          finalTaskId = `T-GPT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-          logDecision({
-            source: "system",
-            decision_key: "task_id_collision_resolved",
-            decision_value: { original_id: baseTaskId, new_id: finalTaskId, task_hash: tHash },
-            directive_id: id,
-            project_id: projectId,
-          });
-        }
+            if (!existingById || existingById.length === 0) break;
 
-        const { error: insertError } = await db
-          .from("ops_tasks")
-          .insert({
-            id: finalTaskId,
-            phase: (t.phase as number) || 0,
-            title: (t.title as string) || "Sin titulo",
-            status: "ready",
-            branch: "main",
-            depends_on: (t.depends_on as string[]) || [],
-            blocked_by: [],
-            directive_id: id,
-            max_attempts: 3,
-            task_hash: tHash,
-            project_id: projectId,
-          });
+            const oldId = finalTaskId;
+            finalTaskId = `T-GPT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+            collisionsCount++;
+            logDecision({
+              source: "system",
+              decision_key: "task_id_collision",
+              decision_value: { old_task_id: oldId, new_task_id: finalTaskId, attempt: attempt + 1 },
+              directive_id: id,
+              project_id: projectId,
+            });
+          }
 
-        if (!insertError) {
-          created.push(finalTaskId);
+          // task_planned — intent to insert
           logDecision({
             source: "system",
             decision_key: "task_planned",
-            decision_value: { task_id: finalTaskId, title: (t.title as string) || "", task_hash: tHash },
+            decision_value: { task_id: finalTaskId, directive_id: id, title: (t.title as string) || "", task_hash: tHash },
             directive_id: id,
             project_id: projectId,
           });
+
+          // Insert task — DB UNIQUE(directive_id, task_hash) handles concurrent dedup
+          const { error: insertError } = await db
+            .from("ops_tasks")
+            .insert({
+              id: finalTaskId,
+              phase: (t.phase as number) || 0,
+              title: (t.title as string) || "Sin titulo",
+              status: "ready",
+              branch: "main",
+              depends_on: (t.depends_on as string[]) || [],
+              blocked_by: [],
+              directive_id: id,
+              max_attempts: 3,
+              task_hash: tHash,
+              project_id: projectId,
+            });
+
+          if (!insertError) {
+            created.push(finalTaskId);
+            // task_inserted — confirmed in DB
+            logDecision({
+              source: "system",
+              decision_key: "task_inserted",
+              decision_value: { task_id: finalTaskId, directive_id: id },
+              directive_id: id,
+              project_id: projectId,
+            });
+          } else if (insertError.code === "23505") {
+            // UNIQUE constraint violation — concurrent dedup (safe)
+            skipped.push(finalTaskId);
+            logDecision({
+              source: "system",
+              decision_key: "task_skipped_dedup_intra_directive",
+              decision_value: { task_id: finalTaskId, directive_id: id, task_hash: tHash, reason: "db_unique_constraint" },
+              directive_id: id,
+              project_id: projectId,
+            });
+          } else {
+            // Unexpected insert error — log but don't crash
+            logDecision({
+              source: "system",
+              decision_key: "task_insert_error",
+              decision_value: { task_id: finalTaskId, error: insertError.message, code: insertError.code },
+              directive_id: id,
+              project_id: projectId,
+            });
+          }
         }
-      }
 
-      // 7. Marcar directiva como APPLIED
-      await db.from("ops_directives").update({
-        status: "APPLIED",
-        applied_at: now,
-        applied_by: "human",
-        updated_at: now,
-      }).eq("id", id).eq("project_id", projectId);
+        // 7. Marcar directiva como APPLIED
+        await db.from("ops_directives").update({
+          status: "APPLIED",
+          applied_at: now,
+          applied_by: "human",
+          updated_at: now,
+        }).eq("id", id).eq("project_id", projectId);
 
-      // 8. Registrar en decisions_log
-      logDecision({
-        source: "system",
-        decision_key: "directive_apply_finished",
-        decision_value: {
+      } finally {
+        // directive_apply_finished — SIEMPRE se emite (incluso si hubo error)
+        const durationMs = Date.now() - applyStart;
+        logDecision({
+          source: "system",
+          decision_key: "directive_apply_finished",
+          decision_value: {
+            directive_id: id,
+            tasks_created: created,
+            tasks_skipped: skipped,
+            tasks_created_count: created.length,
+            tasks_skipped_count: skipped.length,
+            collisions_count: collisionsCount,
+            duration_ms: durationMs,
+          },
+          context: { payload_hash: directive.payload_hash || null },
           directive_id: id,
-          tasks_created: created,
-          tasks_skipped: skipped,
-          tasks_created_count: created.length,
-          tasks_skipped_count: skipped.length,
-        },
-        context: { payload_hash: directive.payload_hash || null },
-        directive_id: id,
-        project_id: projectId,
-      });
+          project_id: projectId,
+        });
+      }
 
       return {
         ok: true,

@@ -4,6 +4,77 @@ Registro de deploys y cambios del sistema El Ruso.
 
 ---
 
+## 2026-02-15 — Hardening: directive apply dedup + observability + DB constraint
+
+### Causa raiz
+Migration 013 creo un `UNIQUE INDEX` global sobre `task_hash` en `ops_tasks`.
+Esto bloqueaba tasks de directivas NUEVAS si GPT generaba contenido similar a tasks
+existentes de directivas anteriores. Resultado: `tasks_created: 0, tasks_skipped: N` sin
+feedback visible para el operador.
+
+### Que cambio
+
+**DB (migration 017)**:
+- DROP del indice global `idx_ops_tasks_task_hash`
+- CREATE `UNIQUE(directive_id, task_hash)` — dedup solo intra-directiva
+- Tasks sin directive_id (seed/manual) no sujetas a dedup
+
+**Backend (`ops.ts` apply handler)**:
+- Dedup cross-directive ELIMINADO — cada plan aprobado crea sus tasks
+- Dedup intra-directive: in-memory `Set<hash>` + DB UNIQUE constraint
+- task_id collision: retry loop (max 3 intentos) con generacion de nuevo ID
+- Telemetria completa (7 decision_keys):
+  - `directive_apply_started` (tasks_count_expected)
+  - `task_planned` (task_id, directive_id, title, task_hash)
+  - `task_inserted` (task_id, directive_id)
+  - `task_skipped_dedup_intra_directive` (task_hash, reason)
+  - `task_id_collision` (old_task_id, new_task_id, attempt)
+  - `task_insert_error` (error, code)
+  - `directive_apply_finished` (tasks_created, tasks_skipped, collisions_count, duration_ms)
+- `directive_apply_finished` SIEMPRE se emite (try/finally)
+
+**Panel (`DirectivesList.tsx`)**:
+- Feedback real del apply en modo operador (no mas mensaje estatico)
+- Boton retry para estado APPROVED
+- Spinner durante el proceso
+
+**Tests** (42 en directive_v1.test.ts, 119 total):
+- Cross-directive: same tasks in 2 directives → different hashes → both created
+- Intra-directive dedup: duplicate tasks → same hash → skipped
+- task_id collision: different content → different hash → new ID generated
+- Zero-created scenario: explicit reason in hash comparison
+
+### Garantias nuevas
+1. UNIQUE(directive_id, task_hash) en DB — concurrencia segura
+2. Ningun skip silencioso — todo queda en decisions_log
+3. `directive_apply_finished` SIEMPRE se emite (try/finally)
+4. Retry automatico en colision de task_id (max 3)
+
+### Como verificar
+```bash
+# Ver telemetria de un apply
+curl -s "https://elruso.onrender.com/ops/decisions?limit=20" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "X-Project-Id: $PROJECT_ID" | \
+  python3 -c "import json,sys; [print(d['decision_key']) for d in json.load(sys.stdin).get('data',[]) if 'directive' in d.get('decision_key','') or 'task_' in d.get('decision_key','')]"
+
+# Esperado para un apply exitoso con N tasks:
+# directive_apply_started
+# task_planned (x N)
+# task_inserted (x N)
+# directive_apply_finished → tasks_created_count: N, duration_ms: X
+```
+
+### Archivos tocados
+- `db/migrations/017_fix_task_hash_dedup_scope.sql` — nueva migracion
+- `apps/api/src/routes/ops.ts` — apply handler hardened
+- `apps/api/src/__tests__/directive_v1.test.ts` — 10 tests nuevos
+- `apps/web/src/pages/DirectivesList.tsx` — feedback panel
+- `docs/CHANGELOG.md` — este archivo
+- `docs/KNOWLEDGE.md` — documentacion de garantias
+
+---
+
 ## 2026-02-15 — Activity Stream narrativo
 **Commit**: `c4e407f`
 

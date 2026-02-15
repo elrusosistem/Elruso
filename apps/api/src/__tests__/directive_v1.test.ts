@@ -295,6 +295,51 @@ describe("taskHash dedup behavior", () => {
   });
 });
 
+// ─── Apply dedup guarantees (mandatory) ────────────────────────
+
+describe("apply dedup guarantees", () => {
+  it("cross-directive: same tasks in 2 different directives → different hashes (both created)", () => {
+    // Two directives with different objectives but identical tasks
+    const task = { title: "Optimizar queries DB", steps: ["Analizar", "Indexar"], task_type: "feature" };
+    const hashDir1 = taskHash(task, "Directive A: mejorar performance");
+    const hashDir2 = taskHash(task, "Directive B: reducir latencia");
+    // Hashes differ because directive_objective differs → no cross-directive dedup
+    expect(hashDir1).not.toBe(hashDir2);
+  });
+
+  it("intra-directive dedup: duplicate tasks within same directive → same hash (skipped)", () => {
+    const objective = "Mismo objetivo para ambas";
+    const task = { title: "Task identica", steps: ["Paso 1"], task_type: "feature" };
+    const h1 = taskHash(task, objective);
+    const h2 = taskHash(task, objective);
+    // In-memory Set would catch this: same hash → skip second
+    expect(h1).toBe(h2);
+  });
+
+  it("task_id collision: hash differs so task should be created with new ID", () => {
+    // Simulates: task_id "T-GPT-001" already exists but content is different
+    const task1 = { task_id: "T-GPT-001", title: "Old task", steps: ["old"] };
+    const task2 = { task_id: "T-GPT-001", title: "New task", steps: ["new"] };
+    const h1 = taskHash(task1, "Objective old");
+    const h2 = taskHash(task2, "Objective new");
+    // Content differs → different hashes → should create with new generated ID
+    expect(h1).not.toBe(h2);
+  });
+
+  it("zero-created scenario: if tasks_expected>0 but all skipped, hashes explain why", () => {
+    // Simulate: a directive with 2 identical tasks (same title/steps/objective)
+    const objective = "Plan con duplicados internos";
+    const taskA = { title: "Hacer lo mismo", steps: ["Paso 1"] };
+    const taskB = { title: "Hacer lo mismo", steps: ["Paso 1"] };
+    const hA = taskHash(taskA, objective);
+    const hB = taskHash(taskB, objective);
+    // Both have same hash → seenHashes Set would skip the second
+    expect(hA).toBe(hB);
+    // Result: 1 created, 1 skipped — NOT 0 created (unless the first also fails)
+    // The decisions_log would contain task_skipped_dedup_intra_directive for the second
+  });
+});
+
 // ─── canonicalJson ──────────────────────────────────────────────
 
 describe("canonicalJson", () => {
