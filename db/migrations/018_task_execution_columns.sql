@@ -9,6 +9,6 @@ ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS steps JSONB NOT NULL DEFAULT '[]'
 ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS params JSONB NOT NULL DEFAULT '{}';
 
 -- Registrar migracion
-INSERT INTO _migrations (name, applied_at)
-VALUES ('018_task_execution_columns', NOW())
-ON CONFLICT (name) DO NOTHING;
+INSERT INTO _migrations (filename)
+VALUES ('018_task_execution_columns')
+ON CONFLICT (filename) DO NOTHING;
