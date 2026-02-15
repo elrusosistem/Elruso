@@ -1,12 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import type { ApiResponse, Objective } from "@elruso/types";
 import { getDb } from "../db.js";
+import { getProjectIdOrDefault, requireProjectId } from "../projectScope.js";
 
 function logDecision(opts: {
   source: string;
   decision_key: string;
   decision_value: Record<string, unknown>;
   context?: Record<string, unknown> | null;
+  project_id: string;
 }): void {
   const db = getDb();
   db.from("decisions_log")
@@ -15,6 +17,7 @@ function logDecision(opts: {
       decision_key: opts.decision_key,
       decision_value: opts.decision_value,
       context: opts.context ?? null,
+      project_id: opts.project_id,
     })
     .then(
       () => {},
@@ -27,12 +30,14 @@ export async function objectivesRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     "/ops/objectives",
     async (request): Promise<ApiResponse<Objective[]>> => {
+      const projectId = getProjectIdOrDefault(request);
       const db = getDb();
       const { status } = request.query as { status?: string };
 
       let query = db
         .from("objectives")
         .select("*")
+        .eq("project_id", projectId)
         .order("priority", { ascending: true })
         .order("created_at", { ascending: false });
 
@@ -50,7 +55,10 @@ export async function objectivesRoutes(app: FastifyInstance): Promise<void> {
   // POST /ops/objectives — create
   app.post(
     "/ops/objectives",
-    async (request): Promise<ApiResponse<Objective>> => {
+    async (request, reply): Promise<ApiResponse<Objective>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return { ok: false, error: "X-Project-Id required" };
+
       const db = getDb();
       const body = request.body as {
         title?: string;
@@ -72,6 +80,7 @@ export async function objectivesRoutes(app: FastifyInstance): Promise<void> {
         priority: body.priority ?? 1,
         owner_label: body.owner_label ?? null,
         status: body.status ?? "draft",
+        project_id: projectId,
       };
 
       const { data, error } = await db
@@ -91,6 +100,7 @@ export async function objectivesRoutes(app: FastifyInstance): Promise<void> {
           title: data.title,
           profile: data.profile,
         },
+        project_id: projectId,
       });
 
       return { ok: true, data: data as Objective };
@@ -100,7 +110,10 @@ export async function objectivesRoutes(app: FastifyInstance): Promise<void> {
   // PATCH /ops/objectives/:id — update
   app.patch(
     "/ops/objectives/:id",
-    async (request): Promise<ApiResponse<Objective>> => {
+    async (request, reply): Promise<ApiResponse<Objective>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return { ok: false, error: "X-Project-Id required" };
+
       const db = getDb();
       const { id } = request.params as { id: string };
       const body = request.body as Partial<{
@@ -122,6 +135,7 @@ export async function objectivesRoutes(app: FastifyInstance): Promise<void> {
         .from("objectives")
         .update(updates)
         .eq("id", id)
+        .eq("project_id", projectId)
         .select("*")
         .single();
 
@@ -134,7 +148,10 @@ export async function objectivesRoutes(app: FastifyInstance): Promise<void> {
   // POST /ops/objectives/:id/activate
   app.post(
     "/ops/objectives/:id/activate",
-    async (request): Promise<ApiResponse<Objective>> => {
+    async (request, reply): Promise<ApiResponse<Objective>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return { ok: false, error: "X-Project-Id required" };
+
       const db = getDb();
       const { id } = request.params as { id: string };
       const now = new Date().toISOString();
@@ -143,6 +160,7 @@ export async function objectivesRoutes(app: FastifyInstance): Promise<void> {
         .from("objectives")
         .update({ status: "active", last_reviewed_at: now, updated_at: now })
         .eq("id", id)
+        .eq("project_id", projectId)
         .select("*")
         .single();
 
@@ -156,6 +174,7 @@ export async function objectivesRoutes(app: FastifyInstance): Promise<void> {
           objective_id: data.id,
           title: data.title,
         },
+        project_id: projectId,
       });
 
       return { ok: true, data: data as Objective };
@@ -165,7 +184,10 @@ export async function objectivesRoutes(app: FastifyInstance): Promise<void> {
   // POST /ops/objectives/:id/pause
   app.post(
     "/ops/objectives/:id/pause",
-    async (request): Promise<ApiResponse<Objective>> => {
+    async (request, reply): Promise<ApiResponse<Objective>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return { ok: false, error: "X-Project-Id required" };
+
       const db = getDb();
       const { id } = request.params as { id: string };
       const now = new Date().toISOString();
@@ -174,6 +196,7 @@ export async function objectivesRoutes(app: FastifyInstance): Promise<void> {
         .from("objectives")
         .update({ status: "paused", updated_at: now })
         .eq("id", id)
+        .eq("project_id", projectId)
         .select("*")
         .single();
 
@@ -187,6 +210,7 @@ export async function objectivesRoutes(app: FastifyInstance): Promise<void> {
           objective_id: data.id,
           title: data.title,
         },
+        project_id: projectId,
       });
 
       return { ok: true, data: data as Objective };

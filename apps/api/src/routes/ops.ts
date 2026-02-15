@@ -4,6 +4,7 @@ import { getDb } from "../db.js";
 import { saveRequestValues, hasRequestValues, generateEnvRuntime, validateProvider, execScript } from "../vault.js";
 import { taskHash as computeTaskHash } from "../contracts/directive_v1.js";
 import type { TaskToCreate } from "../contracts/directive_v1.js";
+import { requireProjectId, getProjectIdOrDefault, getProjectId, DEFAULT_PROJECT_ID } from "../projectScope.js";
 
 // Helper: escribe una decision en decisions_log (fire-and-forget, no bloquea la respuesta)
 function logDecision(opts: {
@@ -13,6 +14,7 @@ function logDecision(opts: {
   context?: Record<string, unknown> | null;
   run_id?: string | null;
   directive_id?: string | null;
+  project_id?: string | null;
 }): void {
   const db = getDb();
   db.from("decisions_log").insert({
@@ -22,6 +24,7 @@ function logDecision(opts: {
     context: opts.context ?? null,
     run_id: opts.run_id ?? null,
     directive_id: opts.directive_id ?? null,
+    project_id: opts.project_id ?? null,
   }).then(() => {}, () => {});
 }
 
@@ -73,11 +76,13 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
   // ─── REQUESTS ────────────────────────────────────────────────────
 
-  app.get("/ops/requests", async (): Promise<ApiResponse<OpsRequest[]>> => {
+  app.get("/ops/requests", async (request): Promise<ApiResponse<OpsRequest[]>> => {
+    const projectId = getProjectIdOrDefault(request);
     const db = getDb();
     const { data, error } = await db
       .from("ops_requests")
       .select("*")
+      .eq("project_id", projectId)
       .order("id");
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: data as OpsRequest[] };
@@ -85,7 +90,10 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<{ Body: OpsRequest }>(
     "/ops/requests",
-    async (request): Promise<ApiResponse<OpsRequest>> => {
+    async (request, reply): Promise<ApiResponse<OpsRequest>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return undefined as never;
+
       const body = request.body as OpsRequest;
 
       if (!body.id || !body.service || !body.purpose) {
@@ -106,7 +114,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       const db = getDb();
       const { data, error } = await db
         .from("ops_requests")
-        .upsert(entry, { onConflict: "id" })
+        .upsert({ ...entry, project_id: projectId }, { onConflict: "id,project_id" })
         .select()
         .single();
       if (error) return { ok: false, error: error.message };
@@ -116,7 +124,10 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch<{ Params: { id: string }; Body: { status: string; provided_at?: string } }>(
     "/ops/requests/:id",
-    async (request): Promise<ApiResponse<OpsRequest>> => {
+    async (request, reply): Promise<ApiResponse<OpsRequest>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return undefined as never;
+
       const { id } = request.params;
       const { status, provided_at } = request.body as { status: string; provided_at?: string };
 
@@ -137,6 +148,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         .from("ops_requests")
         .update(updates)
         .eq("id", id)
+        .eq("project_id", projectId)
         .select()
         .single();
       if (error) return { ok: false, error: error.message };
@@ -148,7 +160,10 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<{ Params: { id: string }; Body: { values: Record<string, string> } }>(
     "/ops/requests/:id/value",
-    async (request): Promise<ApiResponse<{ saved: boolean; env_runtime: string }>> => {
+    async (request, reply): Promise<ApiResponse<{ saved: boolean; env_runtime: string }>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return undefined as never;
+
       const { id } = request.params;
       const { values } = request.body as { values: Record<string, string> };
 
@@ -156,16 +171,17 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         return { ok: false, error: "Se requiere al menos un valor" };
       }
 
-      saveRequestValues(id, values);
+      saveRequestValues(id, values, projectId);
 
       // Marcar request como PROVIDED
       const db = getDb();
       await db
         .from("ops_requests")
         .update({ status: "PROVIDED", provided_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("project_id", projectId);
 
-      const envPath = generateEnvRuntime();
+      const envPath = generateEnvRuntime(projectId);
       return { ok: true, data: { saved: true, env_runtime: envPath } };
     }
   );
@@ -173,8 +189,9 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { id: string } }>(
     "/ops/requests/:id/value/status",
     async (request): Promise<ApiResponse<{ has_value: boolean }>> => {
+      const projectId = getProjectIdOrDefault(request);
       const { id } = request.params;
-      return { ok: true, data: { has_value: hasRequestValues(id) } };
+      return { ok: true, data: { has_value: hasRequestValues(id, projectId) } };
     }
   );
 
@@ -182,14 +199,18 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<{ Params: { id: string } }>(
     "/ops/requests/:id/validate",
-    async (request): Promise<ApiResponse<{ ok: boolean; message: string }>> => {
+    async (request, reply): Promise<ApiResponse<{ ok: boolean; message: string }>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return undefined as never;
+
       const { id } = request.params;
-      const result = await validateProvider(id);
+      const result = await validateProvider(id, projectId);
 
       logDecision({
         source: "system",
         decision_key: result.ok ? "request_validated_ok" : "request_validated_failed",
         decision_value: { request_id: id, message: result.message },
+        project_id: projectId,
       });
 
       return { ok: true, data: result };
@@ -210,24 +231,29 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<{ Params: { action: string } }>(
     "/ops/actions/:action",
-    async (request): Promise<ApiResponse<ActionResult>> => {
+    async (request, reply): Promise<ApiResponse<ActionResult>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return undefined as never;
+
       const { action } = request.params;
       const scriptName = ACTION_SCRIPTS[action];
       if (!scriptName) {
         return { ok: false, error: `Accion desconocida: ${action}. Validas: ${Object.keys(ACTION_SCRIPTS).join(", ")}` };
       }
-      const result = await execScript(scriptName);
+      const result = await execScript(scriptName, projectId);
       return { ok: true, data: result };
     }
   );
 
   // ─── DIRECTIVES ──────────────────────────────────────────────────
 
-  app.get("/ops/directives", async (): Promise<ApiResponse<Directive[]>> => {
+  app.get("/ops/directives", async (request): Promise<ApiResponse<Directive[]>> => {
+    const projectId = getProjectIdOrDefault(request);
     const db = getDb();
     const { data, error } = await db
       .from("ops_directives")
       .select("*")
+      .eq("project_id", projectId)
       .order("created_at", { ascending: false });
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: data as Directive[] };
@@ -236,12 +262,14 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { id: string } }>(
     "/ops/directives/:id",
     async (request): Promise<ApiResponse<Directive>> => {
+      const projectId = getProjectIdOrDefault(request);
       const { id } = request.params;
       const db = getDb();
       const { data, error } = await db
         .from("ops_directives")
         .select("*")
         .eq("id", id)
+        .eq("project_id", projectId)
         .single();
       if (error) return { ok: false, error: `Directiva ${id} no encontrada` };
       return { ok: true, data: data as Directive };
@@ -250,7 +278,10 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<{ Body: Directive }>(
     "/ops/directives",
-    async (request): Promise<ApiResponse<Directive>> => {
+    async (request, reply): Promise<ApiResponse<Directive>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return undefined as never;
+
       const body = request.body as Partial<Directive>;
 
       if (!body.id || !body.title) {
@@ -266,6 +297,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         acceptance_criteria: body.acceptance_criteria || [],
         tasks_to_create: body.tasks_to_create || [],
         created_at: body.created_at || new Date().toISOString(),
+        project_id: projectId,
       };
 
       const db = getDb();
@@ -281,7 +313,10 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch<{ Params: { id: string }; Body: { status: string; rejection_reason?: string } }>(
     "/ops/directives/:id",
-    async (request): Promise<ApiResponse<Directive>> => {
+    async (request, reply): Promise<ApiResponse<Directive>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return undefined as never;
+
       const { id } = request.params;
       const { status, rejection_reason } = request.body as {
         status: string;
@@ -310,6 +345,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         .from("ops_directives")
         .update(updates)
         .eq("id", id)
+        .eq("project_id", projectId)
         .select()
         .single();
       if (error) return { ok: false, error: error.message };
@@ -322,6 +358,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
           decision_value: { directive_id: id, status },
           context: rejection_reason ? { rejection_reason } : null,
           directive_id: id,
+          project_id: projectId,
         });
       }
 
@@ -332,12 +369,13 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
   // ─── TASKS ───────────────────────────────────────────────────────
 
   app.get("/ops/tasks", async (request): Promise<ApiResponse<TaskEntry[]>> => {
+    const projectId = getProjectIdOrDefault(request);
     const url = new URL(request.url, "http://localhost");
     const statusFilter = url.searchParams.get("status");
     const phaseFilter = url.searchParams.get("phase");
 
     const db = getDb();
-    let query = db.from("ops_tasks").select("*").order("id");
+    let query = db.from("ops_tasks").select("*").eq("project_id", projectId).order("id");
     if (statusFilter) query = query.eq("status", statusFilter);
     if (phaseFilter) query = query.eq("phase", Number(phaseFilter));
 
@@ -348,7 +386,10 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<{ Body: TaskEntry }>(
     "/ops/tasks",
-    async (request): Promise<ApiResponse<TaskEntry>> => {
+    async (request, reply): Promise<ApiResponse<TaskEntry>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return undefined as never;
+
       const body = request.body as Partial<TaskEntry>;
 
       if (!body.id || !body.title) {
@@ -364,6 +405,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         depends_on: body.depends_on || [],
         blocked_by: body.blocked_by || [],
         directive_id: body.directive_id || null,
+        project_id: projectId,
       };
 
       const db = getDb();
@@ -380,6 +422,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         decision_key: "task_created",
         decision_value: { task_id: entry.id, title: entry.title, status: entry.status },
         directive_id: entry.directive_id || null,
+        project_id: projectId,
       });
 
       return { ok: true, data: data as TaskEntry };
@@ -388,7 +431,10 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>(
     "/ops/tasks/:id",
-    async (request): Promise<ApiResponse<TaskEntry>> => {
+    async (request, reply): Promise<ApiResponse<TaskEntry>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return undefined as never;
+
       const { id } = request.params;
       const body = request.body as Record<string, unknown>;
       const status = body.status as string | undefined;
@@ -410,6 +456,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         .from("ops_tasks")
         .update(update)
         .eq("id", id)
+        .eq("project_id", projectId)
         .select()
         .single();
       if (error) return { ok: false, error: error.message };
@@ -420,12 +467,14 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
           source: "system",
           decision_key: "task_completed",
           decision_value: { task_id: id },
+          project_id: projectId,
         });
       } else if (status === "failed") {
         logDecision({
           source: "system",
           decision_key: "task_failed",
           decision_value: { task_id: id, last_error: body.last_error || null },
+          project_id: projectId,
         });
       }
 
@@ -440,6 +489,9 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     "/ops/tasks/claim",
     async (request, reply): Promise<ApiResponse<TaskEntry | null>> => {
       const { runner_id, task_id } = request.body as { runner_id?: string; task_id?: string };
+
+      // Nullable: if present filter by project, if null (global runner) don't filter
+      const projectId = getProjectId(request);
 
       const db = getDb();
       const now = new Date().toISOString();
@@ -467,6 +519,11 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         .or(`next_run_at.is.null,next_run_at.lte.${now}`)
         .order("phase", { ascending: false })
         .order("created_at", { ascending: true });
+
+      // If projectId present, scope to project; otherwise global runner sees all
+      if (projectId) {
+        query = query.eq("project_id", projectId);
+      }
 
       // If specific task_id requested (backwards compat), filter to it
       if (task_id) {
@@ -511,6 +568,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
               source: "system",
               decision_key: "task_blocked_missing_deps",
               decision_value: { task_id: candidate.id, missing_deps: missing },
+              project_id: (candidate.project_id as string) || null,
             });
             continue; // Skip to next candidate
           }
@@ -543,6 +601,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
             source: "system",
             decision_key: "task_claimed",
             decision_value: { task_id: candidate.id, runner_id: runner_id || "unknown" },
+            project_id: (candidate.project_id as string) || null,
           });
           return { ok: true, data: claimed as TaskEntry };
         }
@@ -557,7 +616,10 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
   // POST /ops/tasks/:id/requeue — Requeue task (increments attempts, backoff, or hard-stop)
   app.post<{ Params: { id: string }; Body: { backoff_seconds?: number; last_error?: string } }>(
     "/ops/tasks/:id/requeue",
-    async (request): Promise<ApiResponse<TaskEntry>> => {
+    async (request, reply): Promise<ApiResponse<TaskEntry>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return undefined as never;
+
       const { id } = request.params;
       const { backoff_seconds = 10, last_error: callerError } = request.body as {
         backoff_seconds?: number;
@@ -574,6 +636,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         .select("attempts, max_attempts")
         .eq("id", id)
         .eq("status", "running")
+        .eq("project_id", projectId)
         .single();
 
       if (fetchError || !currentTask) {
@@ -597,6 +660,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
             updated_at: now.toISOString(),
           })
           .eq("id", id)
+          .eq("project_id", projectId)
           .select()
           .single();
 
@@ -608,6 +672,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
           source: "system",
           decision_key: "task_blocked_max_attempts",
           decision_value: { task_id: id, attempts, max_attempts, last_error: errorMsg },
+          project_id: projectId,
         });
 
         return { ok: true, data: blockedData as TaskEntry };
@@ -628,6 +693,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         })
         .eq("id", id)
         .eq("status", "running")
+        .eq("project_id", projectId)
         .select()
         .single();
 
@@ -639,6 +705,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         source: "system",
         decision_key: "task_requeued",
         decision_value: { task_id: id, attempts, max_attempts, backoff_seconds, next_run_at: nextRun.toISOString() },
+        project_id: projectId,
       });
 
       return { ok: true, data: data as TaskEntry };
@@ -667,6 +734,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         status,
         last_seen_at: new Date().toISOString(),
         meta: meta || {},
+        project_id: DEFAULT_PROJECT_ID,
       };
 
       const { data, error } = await db
@@ -682,6 +750,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         decision_key: "runner_heartbeat",
         decision_value: { runner_id, hostname: (meta as Record<string, unknown>)?.hostname ?? null },
         context: meta ? { meta } : null,
+        project_id: DEFAULT_PROJECT_ID,
       });
 
       return { ok: true, data: data as RunnerHeartbeat };
@@ -689,11 +758,13 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // GET /ops/runner/status — Get runner status (considers offline if last_seen > 60s ago)
-  app.get("/ops/runner/status", async (): Promise<ApiResponse<RunnerHeartbeat[]>> => {
+  app.get("/ops/runner/status", async (request): Promise<ApiResponse<RunnerHeartbeat[]>> => {
+    const projectId = getProjectIdOrDefault(request);
     const db = getDb();
     const { data, error } = await db
       .from("runner_heartbeats")
       .select("*")
+      .eq("project_id", projectId)
       .order("last_seen_at", { ascending: false });
 
     if (error) return { ok: false, error: error.message };
@@ -739,11 +810,12 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
   }
 
   // GET /ops/metrics — Operational metrics
-  app.get("/ops/metrics", async (): Promise<ApiResponse<OpsMetrics>> => {
+  app.get("/ops/metrics", async (request): Promise<ApiResponse<OpsMetrics>> => {
+    const projectId = getProjectIdOrDefault(request);
     const db = getDb();
 
     // 1. Task counts by status
-    const { data: tasksData, error: tasksError } = await db.from("ops_tasks").select("status");
+    const { data: tasksData, error: tasksError } = await db.from("ops_tasks").select("status").eq("project_id", projectId);
     if (tasksError) return { ok: false, error: tasksError.message };
 
     const taskCounts = {
@@ -761,7 +833,8 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     // 2. Runners online/total
     const { data: runnersData, error: runnersError } = await db
       .from("runner_heartbeats")
-      .select("last_seen_at");
+      .select("last_seen_at")
+      .eq("project_id", projectId);
     if (runnersError) return { ok: false, error: runnersError.message };
 
     const now = new Date();
@@ -776,6 +849,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     const { data: runsData, error: runsError } = await db
       .from("run_logs")
       .select("started_at, finished_at, status")
+      .eq("project_id", projectId)
       .order("started_at", { ascending: false })
       .limit(20);
 
@@ -808,6 +882,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     const { data: runs24h } = await db
       .from("run_logs")
       .select("status")
+      .eq("project_id", projectId)
       .gte("started_at", oneDayAgo);
 
     const runsLast24h = (runs24h || []).filter((r) => r.status !== "deduped").length;
@@ -818,6 +893,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
     const { count: allDedupedCount } = await db
       .from("run_logs")
       .select("id", { count: "exact", head: true })
+      .eq("project_id", projectId)
       .eq("status", "deduped");
 
     // 5. Backlog: oldest ready task
@@ -825,6 +901,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       .from("ops_tasks")
       .select("created_at")
       .eq("status", "ready")
+      .eq("project_id", projectId)
       .order("created_at", { ascending: true })
       .limit(1)
       .single();
@@ -936,6 +1013,9 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
       missing_requests: string[];
       idempotent: boolean;
     }>> => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return undefined as never;
+
       const { id } = request.params;
       const db = getDb();
       const now = new Date().toISOString();
@@ -945,6 +1025,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         .from("ops_directives")
         .select("*")
         .eq("id", id)
+        .eq("project_id", projectId)
         .single();
 
       if (fetchError || !directive) {
@@ -970,6 +1051,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
           .select("id")
           .eq("payload_hash", directive.payload_hash)
           .eq("status", "APPLIED")
+          .eq("project_id", projectId)
           .neq("id", id)
           .limit(1);
 
@@ -979,7 +1061,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
             applied_at: now,
             applied_by: "system (hash_match)",
             updated_at: now,
-          }).eq("id", id);
+          }).eq("id", id).eq("project_id", projectId);
 
           return { ok: true, data: { directive_id: id, tasks_created: 0, tasks_skipped: 0, blocked_by_requests: false, missing_requests: [], idempotent: true } };
         }
@@ -995,6 +1077,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         const { data: dbRequests } = await db
           .from("ops_requests")
           .select("id, status")
+          .eq("project_id", projectId)
           .in("id", requiredRequests.map((r) => r.request_id));
 
         const reqMap = new Map((dbRequests || []).map((r) => [r.id, r.status]));
@@ -1013,7 +1096,8 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
               where_to_set: "",
               validation_cmd: "",
               status: status === "PROVIDED" ? "PROVIDED" : "MISSING",
-            }, { onConflict: "id" });
+              project_id: projectId,
+            }, { onConflict: "id,project_id" });
           }
         }
 
@@ -1024,6 +1108,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
             decision_key: "directive_blocked_by_requests",
             decision_value: { directive_id: id, missing_requests: missingReqIds },
             directive_id: id,
+            project_id: projectId,
           });
 
           return {
@@ -1058,6 +1143,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
           .from("ops_tasks")
           .select("id")
           .eq("task_hash", tHash)
+          .eq("project_id", projectId)
           .limit(1);
 
         if (existingByHash && existingByHash.length > 0) {
@@ -1067,6 +1153,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
             decision_key: "task_skipped_duplicate",
             decision_value: { task_id: taskId, existing_task_id: existingByHash[0].id, task_hash: tHash },
             directive_id: id,
+            project_id: projectId,
           });
           continue;
         }
@@ -1076,6 +1163,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
           .from("ops_tasks")
           .select("id")
           .eq("id", taskId)
+          .eq("project_id", projectId)
           .limit(1);
 
         if (existingById && existingById.length > 0) {
@@ -1085,6 +1173,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
             decision_key: "task_skipped_duplicate",
             decision_value: { task_id: taskId, reason: "id_exists", task_hash: tHash },
             directive_id: id,
+            project_id: projectId,
           });
           continue;
         }
@@ -1102,6 +1191,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
             directive_id: id,
             max_attempts: 3,
             task_hash: tHash,
+            project_id: projectId,
           });
 
         if (!insertError) {
@@ -1111,6 +1201,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
             decision_key: "task_planned",
             decision_value: { task_id: taskId, title: (t.title as string) || "", task_hash: tHash },
             directive_id: id,
+            project_id: projectId,
           });
         }
       }
@@ -1121,7 +1212,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         applied_at: now,
         applied_by: "human",
         updated_at: now,
-      }).eq("id", id);
+      }).eq("id", id).eq("project_id", projectId);
 
       // 8. Registrar en decisions_log
       await db.from("decisions_log").insert({
@@ -1130,6 +1221,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         decision_value: { directive_id: id, tasks_created: created, tasks_skipped: skipped },
         context: { payload_hash: directive.payload_hash || null },
         directive_id: id,
+        project_id: projectId,
         created_at: now,
       });
 

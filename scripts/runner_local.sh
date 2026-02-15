@@ -28,6 +28,9 @@ RUNNER_ID="${RUNNER_ID:-runner-$(hostname)-$$}"
 # Tracking de ultimo heartbeat
 LAST_HEARTBEAT=0
 
+# Current project_id (set after claim, used for scoped API calls)
+CURRENT_PROJECT_ID=""
+
 if [ "${1:-}" = "--loop" ]; then
   LOOP_MODE=true
 fi
@@ -61,6 +64,7 @@ if [ -n "$ADMIN_TOKEN" ]; then
   AUTH_ARGS=(-H "Authorization: Bearer ${ADMIN_TOKEN}")
 fi
 
+# API helpers — sin X-Project-Id (para llamadas globales como heartbeat, claim)
 api_get() {
   curl -sf "${AUTH_ARGS[@]}" "${API_BASE_URL}${1}" 2>/dev/null || true
 }
@@ -73,6 +77,23 @@ api_post() {
 
 api_patch() {
   curl -sf -X PATCH "${AUTH_ARGS[@]}" "${API_BASE_URL}${1}" \
+    -H "Content-Type: application/json" \
+    -d "${2}" 2>/dev/null || true
+}
+
+# API helpers — con X-Project-Id (para llamadas scoped)
+api_get_scoped() {
+  curl -sf "${AUTH_ARGS[@]}" -H "X-Project-Id: ${CURRENT_PROJECT_ID}" "${API_BASE_URL}${1}" 2>/dev/null || true
+}
+
+api_post_scoped() {
+  curl -sf -X POST "${AUTH_ARGS[@]}" -H "X-Project-Id: ${CURRENT_PROJECT_ID}" "${API_BASE_URL}${1}" \
+    -H "Content-Type: application/json" \
+    -d "${2}" 2>/dev/null || true
+}
+
+api_patch_scoped() {
+  curl -sf -X PATCH "${AUTH_ARGS[@]}" -H "X-Project-Id: ${CURRENT_PROJECT_ID}" "${API_BASE_URL}${1}" \
     -H "Content-Type: application/json" \
     -d "${2}" 2>/dev/null || true
 }
@@ -97,7 +118,7 @@ run_step() {
   local escaped_output=""
   escaped_output=$(echo "$output" | jq -Rs '.' 2>/dev/null || echo '""')
 
-  api_post "/runs/${run_id}/steps" "{
+  api_post_scoped "/runs/${run_id}/steps" "{
     \"step_name\": \"${step_name}\",
     \"cmd\": $(echo "$cmd" | jq -Rs '.' 2>/dev/null || echo '""'),
     \"exit_code\": ${exit_code},
@@ -112,16 +133,16 @@ process_task() {
   local task_id="$1"
   local task_title="$2"
 
-  log "=== Procesando: ${task_id} — ${task_title} ==="
+  log "=== Procesando: ${task_id} — ${task_title} (project: ${CURRENT_PROJECT_ID}) ==="
 
   # 1. Capturar BEFORE_SHA
   local branch="" before_sha=""
   branch=$(git -C "$ROOT" branch --show-current 2>/dev/null || echo "unknown")
   before_sha=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
-  # 2. Crear RUN via API
+  # 2. Crear RUN via API (scoped)
   local run_response="" run_id=""
-  run_response=$(api_post "/runs" "{
+  run_response=$(api_post_scoped "/runs" "{
     \"task_id\": \"${task_id}\",
     \"branch\": \"${branch}\",
     \"commit_hash\": \"${before_sha}\"
@@ -217,7 +238,7 @@ process_task() {
     log "  patch guardado local: reports/runs/${run_id}/"
   fi
 
-  # 7. Upload artifacts via API
+  # 7. Upload artifacts via API (scoped)
   local escaped_diffstat="" escaped_patch=""
   escaped_diffstat=$(echo "$diffstat" | jq -Rs '.' 2>/dev/null || echo '""')
   if [ -n "$redacted_patch" ]; then
@@ -226,14 +247,14 @@ process_task() {
     escaped_patch='""'
   fi
 
-  api_post "/runs/${run_id}/artifacts" "{
+  api_post_scoped "/runs/${run_id}/artifacts" "{
     \"diffstat\": ${escaped_diffstat},
     \"patch_redacted\": ${escaped_patch},
     \"before_sha\": \"${before_sha}\",
     \"after_sha\": \"${after_sha}\"
   }" > /dev/null 2>&1 || log "  WARN: no se pudieron subir artifacts"
 
-  # 8. Finalizar RUN
+  # 8. Finalizar RUN (scoped)
   local final_status="done"
   if [ "$all_ok" = false ]; then
     final_status="failed"
@@ -246,7 +267,7 @@ process_task() {
   local escaped_summary=""
   escaped_summary=$(echo "$summary" | jq -Rs '.' 2>/dev/null || echo '""')
 
-  api_patch "/runs/${run_id}" "{
+  api_patch_scoped "/runs/${run_id}" "{
     \"status\": \"${final_status}\",
     \"summary\": ${escaped_summary},
     \"file_changes\": ${file_changes_json}
@@ -254,9 +275,9 @@ process_task() {
 
   log "  run -> ${final_status} (${file_count} files, diffstat: $(echo "$diffstat" | tail -1))"
 
-  # 9. Marcar task segun resultado
+  # 9. Marcar task segun resultado (scoped)
   if [ "$final_status" = "done" ]; then
-    api_patch "/ops/tasks/${task_id}" "{\"status\":\"done\",\"finished_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > /dev/null 2>&1 || true
+    api_patch_scoped "/ops/tasks/${task_id}" "{\"status\":\"done\",\"finished_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > /dev/null 2>&1 || true
     log "  task -> done"
   else
     # Requeue con backoff escalonado via API (30/60/120)
@@ -274,7 +295,7 @@ process_task() {
   return 0
 }
 
-# ─── Requeue via API ────────────────────────────────────────────────
+# ─── Requeue via API (scoped) ────────────────────────────────────────
 requeue_task() {
   local task_id="$1"
   local error_msg="${2:-unknown error}"
@@ -288,7 +309,7 @@ requeue_task() {
   escaped_error=$(echo "$safe_error" | jq -Rs '.' 2>/dev/null || echo '"unknown"')
 
   local requeue_response=""
-  requeue_response=$(api_post "/ops/tasks/${task_id}/requeue" "{\"backoff_seconds\":${backoff},\"last_error\":${escaped_error}}")
+  requeue_response=$(api_post_scoped "/ops/tasks/${task_id}/requeue" "{\"backoff_seconds\":${backoff},\"last_error\":${escaped_error}}")
 
   local requeue_ok=""
   requeue_ok=$(echo "$requeue_response" | jq -r '.ok // false' 2>/dev/null || echo "false")
@@ -305,7 +326,7 @@ requeue_task() {
     fi
   else
     log "  WARN: requeue failed, marking task failed"
-    api_patch "/ops/tasks/${task_id}" "{\"status\":\"failed\",\"last_error\":${escaped_error}}" > /dev/null 2>&1 || true
+    api_patch_scoped "/ops/tasks/${task_id}" "{\"status\":\"failed\",\"last_error\":${escaped_error}}" > /dev/null 2>&1 || true
   fi
 }
 
@@ -353,10 +374,10 @@ sweep_stuck_tasks() {
 
 # ─── Main ────────────────────────────────────────────────────────────
 run_once() {
-  # Heartbeat
+  # Heartbeat (global, no X-Project-Id)
   send_heartbeat
 
-  # Claim via server-side selection (no GET previo)
+  # Claim via server-side selection (global — no X-Project-Id → claim from any project)
   local claim_response=""
   claim_response=$(api_post "/ops/tasks/claim" "{\"runner_id\":\"${RUNNER_ID}\"}")
 
@@ -389,7 +410,14 @@ run_once() {
   fi
 
   task_title=$(echo "$claim_response" | jq -r '.data.title // empty' 2>/dev/null || echo "")
-  log "Claimed: ${task_id} — ${task_title}"
+
+  # Extract project_id from claim response for scoped calls
+  CURRENT_PROJECT_ID=$(echo "$claim_response" | jq -r '.data.project_id // empty' 2>/dev/null || echo "")
+  if [ -z "$CURRENT_PROJECT_ID" ]; then
+    CURRENT_PROJECT_ID="00000000-0000-4000-8000-000000000001"
+  fi
+
+  log "Claimed: ${task_id} — ${task_title} (project: ${CURRENT_PROJECT_ID})"
 
   process_task "$task_id" "$task_title"
 }

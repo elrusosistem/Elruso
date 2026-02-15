@@ -2,11 +2,13 @@ import type { FastifyInstance } from "fastify";
 import type { ApiResponse, WizardState } from "@elruso/types";
 import { getDb } from "../db.js";
 import { ensurePlanningRequests } from "../profiles/index.js";
+import { getProjectIdOrDefault, requireProjectId } from "../projectScope.js";
 
 function logDecision(opts: {
   source: string;
   decision_key: string;
   decision_value: Record<string, unknown>;
+  project_id: string;
 }): void {
   const db = getDb();
   db.from("decisions_log")
@@ -15,6 +17,7 @@ function logDecision(opts: {
       decision_key: opts.decision_key,
       decision_value: opts.decision_value,
       context: null,
+      project_id: opts.project_id,
     })
     .then(
       () => {},
@@ -34,12 +37,13 @@ export async function wizardRoutes(app: FastifyInstance): Promise<void> {
   // GET /ops/wizard/status
   app.get(
     "/ops/wizard/status",
-    async (): Promise<ApiResponse<WizardState>> => {
+    async (request): Promise<ApiResponse<WizardState>> => {
+      const projectId = getProjectIdOrDefault(request);
       const db = getDb();
       const { data, error } = await db
         .from("wizard_state")
         .select("*")
-        .eq("id", 1)
+        .eq("project_id", projectId)
         .single();
 
       if (error || !data) {
@@ -64,6 +68,7 @@ export async function wizardRoutes(app: FastifyInstance): Promise<void> {
     "/ops/wizard/answers",
     async (
       request,
+      reply,
     ): Promise<
       ApiResponse<{
         wizard: WizardState;
@@ -71,6 +76,9 @@ export async function wizardRoutes(app: FastifyInstance): Promise<void> {
         requests_skipped?: string[];
       }>
     > => {
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return { ok: false, error: "X-Project-Id required" };
+
       const db = getDb();
       const body = request.body as {
         answers?: Record<string, unknown>;
@@ -87,7 +95,7 @@ export async function wizardRoutes(app: FastifyInstance): Promise<void> {
         (body.answers.profile as string) ?? "tiendanube";
 
       const row = {
-        id: 1,
+        project_id: projectId,
         has_completed_wizard: completed,
         answers: body.answers,
         current_profile: profile,
@@ -96,7 +104,7 @@ export async function wizardRoutes(app: FastifyInstance): Promise<void> {
 
       const { error: upsertError } = await db
         .from("wizard_state")
-        .upsert(row, { onConflict: "id" });
+        .upsert(row, { onConflict: "project_id" });
 
       if (upsertError) {
         return {
@@ -109,7 +117,7 @@ export async function wizardRoutes(app: FastifyInstance): Promise<void> {
       let requestsSkipped: string[] = [];
 
       if (completed) {
-        const result = await ensurePlanningRequests(db, profile);
+        const result = await ensurePlanningRequests(db, profile, undefined, projectId);
         requestsCreated = result.created;
         requestsSkipped = result.skipped;
 
@@ -121,6 +129,7 @@ export async function wizardRoutes(app: FastifyInstance): Promise<void> {
             answers_keys: Object.keys(body.answers),
             requests_created: requestsCreated,
           },
+          project_id: projectId,
         });
 
         if (requestsCreated.length > 0) {
@@ -132,6 +141,7 @@ export async function wizardRoutes(app: FastifyInstance): Promise<void> {
               created: requestsCreated,
               skipped: requestsSkipped,
             },
+            project_id: projectId,
           });
         }
       }
@@ -140,7 +150,7 @@ export async function wizardRoutes(app: FastifyInstance): Promise<void> {
       const { data } = await db
         .from("wizard_state")
         .select("*")
-        .eq("id", 1)
+        .eq("project_id", projectId)
         .single();
 
       return {

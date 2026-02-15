@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { getDb } from "../db.js";
 import { redact, containsSecrets } from "../redact.js";
 import { getAllValues } from "../vault.js";
+import { getProjectIdOrDefault, requireProjectId } from "../projectScope.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..", "..", "..", "..");
@@ -16,6 +17,7 @@ function logDecision(opts: {
   decision_value: Record<string, unknown>;
   context?: Record<string, unknown> | null;
   run_id?: string | null;
+  project_id: string;
 }): void {
   const db = getDb();
   db.from("decisions_log").insert({
@@ -24,18 +26,19 @@ function logDecision(opts: {
     decision_value: opts.decision_value,
     context: opts.context ?? null,
     run_id: opts.run_id ?? null,
+    project_id: opts.project_id,
   }).then(() => {}, () => {});
 }
 
 export async function runsRoutes(app: FastifyInstance): Promise<void> {
-  // TODO: agregar auth middleware (token) en Fase 6
-
   // GET /runs — lista de ejecuciones recientes
   app.get("/runs", async (request): Promise<ApiResponse<RunLog[]>> => {
+    const projectId = getProjectIdOrDefault(request);
     const db = getDb();
     const { data, error } = await db
       .from("run_logs")
       .select("*")
+      .eq("project_id", projectId)
       .order("started_at", { ascending: false })
       .limit(50);
 
@@ -92,7 +95,10 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
   // POST /runs — crear un run nuevo
   app.post<{
     Body: { task_id: string; branch?: string; commit_hash?: string };
-  }>("/runs", async (request): Promise<ApiResponse<RunLog>> => {
+  }>("/runs", async (request, reply): Promise<ApiResponse<RunLog>> => {
+    const projectId = requireProjectId(request, reply);
+    if (!projectId) return { ok: false, error: "X-Project-Id required" };
+
     const { task_id, branch, commit_hash } = request.body as {
       task_id: string;
       branch?: string;
@@ -112,6 +118,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
         status: "running",
         branch: branch ?? null,
         commit_hash: commit_hash ?? null,
+        project_id: projectId,
       })
       .select()
       .single();
@@ -129,6 +136,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
     Params: { id: string };
     Body: { step_name: string; cmd?: string; exit_code?: number; output_excerpt?: string };
   }>("/runs/:id/steps", async (request): Promise<ApiResponse<RunStep>> => {
+    const projectId = getProjectIdOrDefault(request);
     const { id } = request.params;
     const { step_name, cmd, exit_code, output_excerpt } = request.body as {
       step_name: string;
@@ -152,7 +160,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
         step_name,
         cmd: cmd ?? null,
         exit_code: exit_code ?? null,
-        output_excerpt: output_excerpt ? redact(output_excerpt, getAllValues()) : null,
+        output_excerpt: output_excerpt ? redact(output_excerpt, getAllValues(projectId)) : null,
         finished_at,
       })
       .select()
@@ -171,6 +179,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
     Params: { id: string };
     Body: { status: string; summary?: string; file_changes?: Array<{ path: string; change_type: string; diffstat?: string }> };
   }>("/runs/:id", async (request): Promise<ApiResponse<RunLog>> => {
+    const projectId = getProjectIdOrDefault(request);
     const { id } = request.params;
     const { status, summary, file_changes } = request.body as {
       status: string;
@@ -186,7 +195,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
     const db = getDb();
 
     const updates: Record<string, unknown> = { status };
-    if (summary !== undefined) updates.summary = redact(summary, getAllValues());
+    if (summary !== undefined) updates.summary = redact(summary, getAllValues(projectId));
     if (status === "done" || status === "failed") {
       updates.finished_at = new Date().toISOString();
     }
@@ -225,6 +234,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
           file_changes_count: file_changes?.length ?? 0,
         },
         run_id: id,
+        project_id: projectId,
       });
     }
 
@@ -243,6 +253,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
       after_sha?: string;
     };
   }>("/runs/:id/artifacts", async (request): Promise<ApiResponse<{ saved: boolean; artifact_path: string }>> => {
+    const projectId = getProjectIdOrDefault(request);
     const { id } = request.params;
     const body = request.body as {
       diffstat: string;
@@ -265,7 +276,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // 2. Defense in depth: re-redact patch
-    const secrets = getAllValues();
+    const secrets = getAllValues(projectId);
     const safePatched = redact(body.patch_redacted || "", secrets);
     const safeDiffstat = redact(body.diffstat || "", secrets);
 
@@ -314,6 +325,7 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
         after_sha: body.after_sha || null,
       },
       run_id: id,
+      project_id: projectId,
     });
 
     return { ok: true, data: { saved: true, artifact_path: artifactPath } };

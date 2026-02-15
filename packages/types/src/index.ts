@@ -144,6 +144,15 @@ export interface WizardState {
   updated_at: string;
 }
 
+// ─── Projects ──────────────────────────────────────────────────────
+export interface Project {
+  id: string;
+  name: string;
+  profile: string;
+  created_at: string;
+  is_active: boolean;
+}
+
 // ─── API responses ───────────────────────────────────────────────────
 export interface ApiResponse<T = unknown> {
   ok: boolean;

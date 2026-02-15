@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { ApiResponse, DecisionLog } from "@elruso/types";
 import { getDb } from "../db.js";
 import { redactPatterns } from "../redact.js";
+import { getProjectIdOrDefault, requireProjectId } from "../projectScope.js";
 
 // Campos que pueden contener secretos y necesitan redacción
 const REDACT_FIELDS = ["decision_value", "context"];
@@ -27,7 +28,10 @@ export async function decisionsRoutes(app: FastifyInstance): Promise<void> {
       run_id?: string;
       directive_id?: string;
     };
-  }>("/ops/decisions", async (request): Promise<ApiResponse<DecisionLog>> => {
+  }>("/ops/decisions", async (request, reply): Promise<ApiResponse<DecisionLog>> => {
+    const projectId = requireProjectId(request, reply);
+    if (!projectId) return { ok: false, error: "X-Project-Id required" };
+
     const body = request.body as {
       source?: string;
       decision_key: string;
@@ -54,6 +58,7 @@ export async function decisionsRoutes(app: FastifyInstance): Promise<void> {
       context: body.context ?? null,
       run_id: body.run_id ?? null,
       directive_id: body.directive_id ?? null,
+      project_id: projectId,
     };
 
     const db = getDb();
@@ -73,6 +78,7 @@ export async function decisionsRoutes(app: FastifyInstance): Promise<void> {
 
   // GET /ops/decisions — listar decisions con filtros
   app.get("/ops/decisions", async (request): Promise<ApiResponse<DecisionLog[]>> => {
+    const projectId = getProjectIdOrDefault(request);
     const url = new URL(request.url, "http://localhost");
     const runId = url.searchParams.get("run_id");
     const directiveId = url.searchParams.get("directive_id");
@@ -86,6 +92,7 @@ export async function decisionsRoutes(app: FastifyInstance): Promise<void> {
     let query = db
       .from("decisions_log")
       .select("*", { count: "exact" })
+      .eq("project_id", projectId)
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
 

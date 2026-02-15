@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ApiResponse } from "@elruso/types";
 import { apiFetch } from "./api";
 import { useUiMode } from "./uiMode";
+import { useSelectedProject } from "./projectStore";
 import { OPERATOR_NAV_LABELS } from "./humanize";
 import { RunsList } from "./pages/RunsList";
 import { RunDetail } from "./pages/RunDetail";
@@ -15,6 +16,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Help } from "./pages/Help";
 import { StrategyWizard } from "./pages/StrategyWizard";
 import { ObjectivesList } from "./pages/ObjectivesList";
+import { ProjectsList } from "./pages/ProjectsList";
 import { OperatorOnboardingModal } from "./components/OperatorOnboardingModal";
 
 function useHash() {
@@ -148,6 +150,7 @@ const NAV_ITEMS = [
   { path: "#/directives", label: "Directivas", match: "#/directives" },
   { path: "#/decisions", label: "Decisions", match: "#/decisions" },
   { path: "#/requests", label: "Requests", match: "#/requests" },
+  { path: "#/projects", label: "Proyectos", match: "#/projects" },
   { path: "#/setup", label: "Setup", match: "#/setup" },
 ];
 
@@ -175,15 +178,51 @@ function ModeToggle() {
   );
 }
 
+function ProjectBadge() {
+  const [project] = useSelectedProject();
+
+  if (!project) {
+    return (
+      <a
+        href="#/projects"
+        className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-yellow-900/50 text-yellow-300 text-xs hover:bg-yellow-900/70 transition-colors"
+      >
+        Sin proyecto
+      </a>
+    );
+  }
+
+  return (
+    <a
+      href="#/projects"
+      className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-gray-800 text-xs hover:bg-gray-700 transition-colors"
+    >
+      {project.name}
+    </a>
+  );
+}
+
 export function App() {
   const hash = useHash();
   const [mode] = useUiMode();
   const isOp = mode === "operator";
+  const [selectedProject] = useSelectedProject();
+
+  // Soft guard: redirect to projects if none selected (except projects page itself)
+  useEffect(() => {
+    if (!selectedProject && hash !== "#/projects") {
+      window.location.hash = "#/projects";
+    }
+  }, [selectedProject, hash]);
 
   const runDetailMatch = hash.match(/^#\/runs\/(.+)$/);
 
   let page: React.ReactNode;
-  if (runDetailMatch) {
+  if (hash === "#/projects") {
+    page = <ProjectsList />;
+  } else if (!selectedProject) {
+    page = <ProjectsList />;
+  } else if (runDetailMatch) {
     page = <RunDetail runId={runDetailMatch[1]} />;
   } else if (hash === "#/requests") {
     page = <RequestsList />;
@@ -248,6 +287,7 @@ export function App() {
           )}
         </div>
         <div className="flex items-center gap-3">
+          <ProjectBadge />
           <ModeToggle />
           <RunnerBadge />
           <PauseControl />

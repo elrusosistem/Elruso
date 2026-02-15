@@ -7,6 +7,7 @@ import {
   seedPlanningRequests,
   TEST_PREFIX,
   TEST_DIRECTIVE_PAYLOAD,
+  TEST_HEADERS,
 } from "./helpers/testData.js";
 
 // Mock OpenAI at module level
@@ -60,6 +61,7 @@ describe.skipIf(!process.env.SUPABASE_URL)("E2E GPT Pipeline", () => {
     const res = await app.inject({
       method: "POST",
       url: "/ops/gpt/run",
+      headers: TEST_HEADERS,
     });
 
     const body = res.json();
@@ -76,6 +78,7 @@ describe.skipIf(!process.env.SUPABASE_URL)("E2E GPT Pipeline", () => {
     const res = await app.inject({
       method: "POST",
       url: "/ops/gpt/run",
+      headers: TEST_HEADERS,
     });
 
     const body = res.json();
@@ -95,6 +98,7 @@ describe.skipIf(!process.env.SUPABASE_URL)("E2E GPT Pipeline", () => {
     const res = await app.inject({
       method: "POST",
       url: "/ops/gpt/run",
+      headers: TEST_HEADERS,
     });
 
     const body = res.json();
@@ -125,6 +129,7 @@ describe.skipIf(!process.env.SUPABASE_URL)("E2E GPT Pipeline", () => {
     const approveRes = await app.inject({
       method: "PATCH",
       url: `/ops/directives/${createdDirectiveId}`,
+      headers: TEST_HEADERS,
       payload: { status: "APPROVED" },
     });
     expect(approveRes.json().ok).toBe(true);
@@ -133,6 +138,7 @@ describe.skipIf(!process.env.SUPABASE_URL)("E2E GPT Pipeline", () => {
     const applyRes = await app.inject({
       method: "POST",
       url: `/ops/directives/${createdDirectiveId}/apply`,
+      headers: TEST_HEADERS,
     });
 
     const body = applyRes.json();
@@ -159,6 +165,7 @@ describe.skipIf(!process.env.SUPABASE_URL)("E2E GPT Pipeline", () => {
     const res = await app.inject({
       method: "POST",
       url: `/ops/directives/${createdDirectiveId}/apply`,
+      headers: TEST_HEADERS,
     });
 
     const body = res.json();

@@ -6,6 +6,7 @@ import { validateDirective, payloadHash } from "../contracts/directive_v1.js";
 import type { DirectiveV1 } from "../contracts/directive_v1.js";
 import { redactPatterns } from "../redact.js";
 import OpenAI from "openai";
+import { requireProjectId, getProjectIdOrDefault } from "../projectScope.js";
 
 // ─── Helper: decisions_log (fire-and-forget) ──────────────────────
 function logDecision(opts: {
@@ -14,6 +15,7 @@ function logDecision(opts: {
   decision_value: Record<string, unknown>;
   context?: Record<string, unknown> | null;
   directive_id?: string | null;
+  project_id?: string | null;
 }): void {
   const db = getDb();
   db.from("decisions_log").insert({
@@ -22,6 +24,7 @@ function logDecision(opts: {
     decision_value: opts.decision_value,
     context: opts.context ?? null,
     directive_id: opts.directive_id ?? null,
+    project_id: opts.project_id ?? null,
   }).then(() => {}, () => {});
 }
 
@@ -39,24 +42,26 @@ interface StateSnapshot {
   timestamp: string;
 }
 
-async function buildStateSnapshot(): Promise<StateSnapshot> {
+async function buildStateSnapshot(projectId: string): Promise<StateSnapshot> {
   const db = getDb();
 
+  // ops_state: keep global (pause is system-wide)
   const { data: sysState } = await db.from("ops_state").select("value").eq("key", "system_paused").single();
   const paused = sysState ? sysState.value === true || sysState.value === "true" : false;
 
-  const { data: tasks } = await db.from("ops_tasks").select("status");
+  const { data: tasks } = await db.from("ops_tasks").select("status").eq("project_id", projectId);
   const counts: Record<string, number> = {};
   for (const t of tasks || []) counts[t.status] = (counts[t.status] || 0) + 1;
 
+  // runner_heartbeats: keep global (infra)
   const now = new Date();
   const { data: runners } = await db.from("runner_heartbeats").select("last_seen_at");
   const onlineRunners = (runners || []).filter((r) => {
     return (now.getTime() - new Date(r.last_seen_at as string).getTime()) / 1000 <= 60;
   }).length;
 
-  const { data: reqs } = await db.from("ops_requests").select("status").in("status", ["WAITING", "MISSING", "NEEDED"]);
-  const { count: recentRuns } = await db.from("run_logs").select("id", { count: "exact", head: true });
+  const { data: reqs } = await db.from("ops_requests").select("status").eq("project_id", projectId).in("status", ["WAITING", "MISSING", "NEEDED"]);
+  const { count: recentRuns } = await db.from("run_logs").select("id", { count: "exact", head: true }).eq("project_id", projectId);
 
   return {
     paused,
@@ -80,7 +85,7 @@ interface PreconditionResult {
   missingRequests: { id: string; purpose: string }[];
 }
 
-async function checkPlanningPreconditions(): Promise<PreconditionResult> {
+async function checkPlanningPreconditions(projectId: string): Promise<PreconditionResult> {
   const db = getDb();
   const reasons: string[] = [];
 
@@ -88,7 +93,7 @@ async function checkPlanningPreconditions(): Promise<PreconditionResult> {
   const { data: wizardData } = await db
     .from("wizard_state")
     .select("has_completed_wizard")
-    .eq("id", 1)
+    .eq("project_id", projectId)
     .single();
 
   if (!wizardData || !wizardData.has_completed_wizard) {
@@ -99,7 +104,8 @@ async function checkPlanningPreconditions(): Promise<PreconditionResult> {
   const { data: objectives } = await db
     .from("objectives")
     .select("id, title, description, priority, profile")
-    .eq("status", "active");
+    .eq("status", "active")
+    .eq("project_id", projectId);
 
   if (!objectives || objectives.length === 0) {
     reasons.push("no_active_objectives");
@@ -109,7 +115,8 @@ async function checkPlanningPreconditions(): Promise<PreconditionResult> {
   const { data: requiredReqs } = await db
     .from("ops_requests")
     .select("id, purpose, status")
-    .eq("required_for_planning", true);
+    .eq("required_for_planning", true)
+    .eq("project_id", projectId);
 
   const missing = (requiredReqs || []).filter(
     (r) => r.status !== "PROVIDED",
@@ -128,15 +135,16 @@ async function checkPlanningPreconditions(): Promise<PreconditionResult> {
 }
 
 // ─── Compose: prompt estructurado con secciones fijas ─────────────
-async function composeContext(): Promise<{ prompt: string; state_snapshot: StateSnapshot }> {
+async function composeContext(projectId: string): Promise<{ prompt: string; state_snapshot: StateSnapshot }> {
   const db = getDb();
-  const snapshot = await buildStateSnapshot();
+  const snapshot = await buildStateSnapshot(projectId);
 
   // Tasks READY (max 20)
   const { data: readyTasks } = await db
     .from("ops_tasks")
     .select("id, title, depends_on, priority")
     .eq("status", "ready")
+    .eq("project_id", projectId)
     .order("created_at", { ascending: true })
     .limit(20);
 
@@ -145,6 +153,7 @@ async function composeContext(): Promise<{ prompt: string; state_snapshot: State
     .from("ops_requests")
     .select("id, service, purpose, status")
     .in("status", ["WAITING", "MISSING", "NEEDED"])
+    .eq("project_id", projectId)
     .order("id")
     .limit(20);
 
@@ -152,6 +161,7 @@ async function composeContext(): Promise<{ prompt: string; state_snapshot: State
   const { data: allReqs } = await db
     .from("ops_requests")
     .select("id, service, status")
+    .eq("project_id", projectId)
     .order("id");
 
   // Last 3 runs (summary redacted)
@@ -159,6 +169,7 @@ async function composeContext(): Promise<{ prompt: string; state_snapshot: State
     .from("run_logs")
     .select("task_id, status, summary, started_at")
     .neq("status", "deduped")
+    .eq("project_id", projectId)
     .order("started_at", { ascending: false })
     .limit(3);
 
@@ -166,6 +177,7 @@ async function composeContext(): Promise<{ prompt: string; state_snapshot: State
   const { data: lastDecisions } = await db
     .from("decisions_log")
     .select("decision_key, decision_value, source, created_at")
+    .eq("project_id", projectId)
     .order("created_at", { ascending: false })
     .limit(10);
 
@@ -174,6 +186,7 @@ async function composeContext(): Promise<{ prompt: string; state_snapshot: State
     .from("ops_directives")
     .select("id, title, status")
     .in("status", ["PENDING_REVIEW", "APPROVED"])
+    .eq("project_id", projectId)
     .order("created_at", { ascending: false })
     .limit(5);
 
@@ -182,6 +195,7 @@ async function composeContext(): Promise<{ prompt: string; state_snapshot: State
     .from("objectives")
     .select("id, title, description, priority, profile")
     .eq("status", "active")
+    .eq("project_id", projectId)
     .order("priority", { ascending: true });
 
   const readyTasksSection = (readyTasks || []).length > 0
@@ -354,9 +368,10 @@ function parseAndValidateGptResponse(content: string): { directives: DirectiveV1
 export async function gptRoutes(app: FastifyInstance): Promise<void> {
 
   // GET /ops/gpt/preconditions — verificar si se puede planificar
-  app.get("/ops/gpt/preconditions", async (): Promise<ApiResponse<PreconditionResult>> => {
+  app.get("/ops/gpt/preconditions", async (request): Promise<ApiResponse<PreconditionResult>> => {
     try {
-      const result = await checkPlanningPreconditions();
+      const projectId = getProjectIdOrDefault(request);
+      const result = await checkPlanningPreconditions(projectId);
       return { ok: true, data: result };
     } catch (e) {
       return { ok: false, error: `Error verificando precondiciones: ${(e as Error).message}` };
@@ -364,9 +379,11 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // POST /ops/gpt/compose — genera el prompt de contexto (sin llamar a GPT)
-  app.post("/ops/gpt/compose", async (): Promise<ApiResponse<{ prompt: string; state_snapshot: StateSnapshot; char_count: number }>> => {
+  app.post("/ops/gpt/compose", async (request, reply): Promise<ApiResponse<{ prompt: string; state_snapshot: StateSnapshot; char_count: number }> | void> => {
     try {
-      const { prompt, state_snapshot } = await composeContext();
+      const projectId = requireProjectId(request, reply);
+      if (!projectId) return;
+      const { prompt, state_snapshot } = await composeContext(projectId);
       return { ok: true, data: { prompt, state_snapshot, char_count: prompt.length } };
     } catch (e) {
       return { ok: false, error: `Error componiendo contexto: ${(e as Error).message}` };
@@ -374,23 +391,27 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // POST /ops/gpt/run — pipeline: contexto → GPT → validate directive_v1 → persist PENDING_REVIEW
-  app.post("/ops/gpt/run", async (request): Promise<ApiResponse<{
+  app.post("/ops/gpt/run", async (request, reply): Promise<ApiResponse<{
     directives_created: number;
     directives_skipped: number;
     validation_errors: string[];
     model: string;
     usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null;
-  }>> => {
+  }> | void> => {
+    const projectId = requireProjectId(request, reply);
+    if (!projectId) return;
+
     // 0. Log gpt_run_started
     logDecision({
       source: "system",
       decision_key: "gpt_run_started",
       decision_value: { triggered_by: "api" },
+      project_id: projectId,
     });
 
     // 0.5 Guardrails: verificar precondiciones
     try {
-      const preconditions = await checkPlanningPreconditions();
+      const preconditions = await checkPlanningPreconditions(projectId);
       if (!preconditions.canPlan) {
         logDecision({
           source: "system",
@@ -399,6 +420,7 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
             reasons: preconditions.reasons,
             missing_requests: preconditions.missingRequests,
           },
+          project_id: projectId,
         });
         return {
           ok: false,
@@ -415,13 +437,14 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // 1. API key
-    const openaiValues = getRequestValues("REQ-009");
+    const openaiValues = getRequestValues("REQ-009", projectId);
     const apiKey = openaiValues?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
     if (!apiKey) {
       logDecision({
         source: "system",
         decision_key: "gpt_run_failed",
         decision_value: { reason: "OPENAI_API_KEY not available" },
+        project_id: projectId,
       });
       return { ok: false, error: "OPENAI_API_KEY no disponible." };
     }
@@ -430,7 +453,7 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
     let prompt: string;
     let stateSnapshot: StateSnapshot;
     try {
-      const composed = await composeContext();
+      const composed = await composeContext(projectId);
       prompt = composed.prompt;
       stateSnapshot = composed.state_snapshot;
     } catch (e) {
@@ -438,6 +461,7 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
         source: "system",
         decision_key: "gpt_run_failed",
         decision_value: { reason: "compose_error", error: (e as Error).message },
+        project_id: projectId,
       });
       return { ok: false, error: `Error componiendo contexto: ${(e as Error).message}` };
     }
@@ -475,6 +499,7 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
         source: "system",
         decision_key: "gpt_run_failed",
         decision_value: { reason: "openai_api_error", error: redactPatterns((e as Error).message) },
+        project_id: projectId,
       });
       return { ok: false, error: `Error llamando a OpenAI: ${(e as Error).message}` };
     }
@@ -484,6 +509,7 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
         source: "system",
         decision_key: "gpt_run_failed",
         decision_value: { reason: "empty_response" },
+        project_id: projectId,
       });
       return { ok: false, error: "GPT devolvio respuesta vacia" };
     }
@@ -500,6 +526,7 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
         source: "system",
         decision_key: "gpt_run_failed",
         decision_value: { reason: "parse_error", error: (e as Error).message },
+        project_id: projectId,
       });
       return { ok: false, error: `Error parseando respuesta de GPT: ${(e as Error).message}. Raw: ${gptResponse.substring(0, 500)}` };
     }
@@ -510,6 +537,7 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
         source: "system",
         decision_key: "gpt_directive_validation_failed",
         decision_value: { errors: validationErrors, count: validationErrors.length },
+        project_id: projectId,
       });
     }
 
@@ -534,6 +562,7 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
         .from("ops_directives")
         .select("id")
         .eq("payload_hash", hash)
+        .eq("project_id", projectId)
         .limit(1);
 
       if (existing && existing.length > 0) {
@@ -555,6 +584,7 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
         payload_hash: hash,
         directive_schema_version: directive.directive_schema_version || "v1",
         created_at: now,
+        project_id: projectId,
       });
 
       logDecision({
@@ -569,6 +599,7 @@ export async function gptRoutes(app: FastifyInstance): Promise<void> {
         },
         context: { state_snapshot: stateSnapshot },
         directive_id: directiveId,
+        project_id: projectId,
       });
 
       created++;

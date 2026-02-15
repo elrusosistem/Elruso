@@ -7,6 +7,7 @@ import { gptRoutes } from "./routes/gpt.js";
 import { decisionsRoutes } from "./routes/decisions.js";
 import { objectivesRoutes } from "./routes/objectives.js";
 import { wizardRoutes } from "./routes/wizard.js";
+import { projectsRoutes } from "./routes/projects.js";
 import { requireAdmin } from "./auth.js";
 
 const app = Fastify({ logger: true });
@@ -37,6 +38,7 @@ await app.register(gptRoutes);
 await app.register(decisionsRoutes);
 await app.register(objectivesRoutes);
 await app.register(wizardRoutes);
+await app.register(projectsRoutes);
 
 const port = Number(process.env.PORT) || 3001;
 const host = process.env.HOST || "0.0.0.0";

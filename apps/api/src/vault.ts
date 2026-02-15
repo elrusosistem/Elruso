@@ -1,47 +1,73 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFile } from "node:child_process";
+import { DEFAULT_PROJECT_ID } from "./projectScope.js";
 
-const SECRETS_DIR = resolve(import.meta.dirname, "../../../ops/.secrets");
-const VAULT_FILE = resolve(SECRETS_DIR, "requests_values.json");
+const BASE_SECRETS_DIR = resolve(import.meta.dirname, "../../../ops/.secrets");
 const ROOT_DIR = resolve(import.meta.dirname, "../../..");
 
-function ensureDir(): void {
-  if (!existsSync(SECRETS_DIR)) {
-    mkdirSync(SECRETS_DIR, { recursive: true });
+function secretsDir(projectId?: string): string {
+  const pid = projectId ?? DEFAULT_PROJECT_ID;
+  return resolve(BASE_SECRETS_DIR, pid);
+}
+
+function vaultFile(projectId?: string): string {
+  return resolve(secretsDir(projectId), "requests_values.json");
+}
+
+function ensureDir(projectId?: string): void {
+  const dir = secretsDir(projectId);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
   }
 }
 
-function readVault(): Record<string, Record<string, string>> {
-  ensureDir();
-  if (!existsSync(VAULT_FILE)) return {};
-  const content = readFileSync(VAULT_FILE, "utf-8");
+function readVault(projectId?: string): Record<string, Record<string, string>> {
+  ensureDir(projectId);
+  const file = vaultFile(projectId);
+  if (!existsSync(file)) return {};
+  const content = readFileSync(file, "utf-8");
   return JSON.parse(content);
 }
 
-function writeVault(data: Record<string, Record<string, string>>): void {
-  ensureDir();
-  writeFileSync(VAULT_FILE, JSON.stringify(data, null, 2) + "\n", "utf-8");
+function writeVault(data: Record<string, Record<string, string>>, projectId?: string): void {
+  ensureDir(projectId);
+  writeFileSync(vaultFile(projectId), JSON.stringify(data, null, 2) + "\n", "utf-8");
 }
 
-export function saveRequestValues(requestId: string, values: Record<string, string>): void {
-  const vault = readVault();
+// ─── Backward compat: read legacy vault (flat, no project namespace) ─
+function readLegacyVault(): Record<string, Record<string, string>> {
+  const legacyFile = resolve(BASE_SECRETS_DIR, "requests_values.json");
+  if (!existsSync(legacyFile)) return {};
+  const content = readFileSync(legacyFile, "utf-8");
+  return JSON.parse(content);
+}
+
+function readVaultWithFallback(projectId?: string): Record<string, Record<string, string>> {
+  const vault = readVault(projectId);
+  if (Object.keys(vault).length > 0) return vault;
+  // Fallback to legacy vault for backward compat
+  return readLegacyVault();
+}
+
+export function saveRequestValues(requestId: string, values: Record<string, string>, projectId?: string): void {
+  const vault = readVault(projectId);
   vault[requestId] = values;
-  writeVault(vault);
+  writeVault(vault, projectId);
 }
 
-export function hasRequestValues(requestId: string): boolean {
-  const vault = readVault();
+export function hasRequestValues(requestId: string, projectId?: string): boolean {
+  const vault = readVaultWithFallback(projectId);
   return requestId in vault && Object.keys(vault[requestId]).length > 0;
 }
 
-export function getRequestValues(requestId: string): Record<string, string> | null {
-  const vault = readVault();
+export function getRequestValues(requestId: string, projectId?: string): Record<string, string> | null {
+  const vault = readVaultWithFallback(projectId);
   return vault[requestId] ?? null;
 }
 
-export function getAllValues(): Record<string, string> {
-  const vault = readVault();
+export function getAllValues(projectId?: string): Record<string, string> {
+  const vault = readVaultWithFallback(projectId);
   const flat: Record<string, string> = {};
   for (const values of Object.values(vault)) {
     Object.assign(flat, values);
@@ -49,8 +75,8 @@ export function getAllValues(): Record<string, string> {
   return flat;
 }
 
-export function generateEnvRuntime(): string {
-  const values = getAllValues();
+export function generateEnvRuntime(projectId?: string): string {
+  const values = getAllValues(projectId);
   const lines = Object.entries(values)
     .map(([key, val]) => `${key}=${val}`)
     .join("\n");
@@ -67,14 +93,14 @@ import { redactValue, redact as redactFull } from "./redact.js";
 const redact = redactValue;
 export { redact };
 
-export function redactOutput(output: string): string {
-  return redactFull(output, getAllValues());
+export function redactOutput(output: string, projectId?: string): string {
+  return redactFull(output, getAllValues(projectId));
 }
 
 // ─── Validación por provider ────────────────────────────────────────
 
-export async function validateProvider(requestId: string): Promise<{ ok: boolean; message: string }> {
-  const values = getRequestValues(requestId);
+export async function validateProvider(requestId: string, projectId?: string): Promise<{ ok: boolean; message: string }> {
+  const values = getRequestValues(requestId, projectId);
   if (!values || Object.keys(values).length === 0) {
     return { ok: false, message: "No hay valores guardados en vault para este request" };
   }
@@ -83,9 +109,9 @@ export async function validateProvider(requestId: string): Promise<{ ok: boolean
     case "REQ-001": return validateSupabase(values);
     case "REQ-002": return validateRender(values);
     case "REQ-003": return validateVercel(values);
-    case "REQ-005": return validateDatabase(values);
+    case "REQ-005": return validateDatabase(values, projectId);
     case "REQ-TN-STORE": return validateTiendanubeStore(values);
-    case "REQ-TN-TOKEN": return validateTiendanubeToken(values);
+    case "REQ-TN-TOKEN": return validateTiendanubeToken(values, projectId);
     default: return { ok: true, message: "Request sin validación automática" };
   }
 }
@@ -146,18 +172,15 @@ async function validateVercel(values: Record<string, string>): Promise<{ ok: boo
   }
 }
 
-async function validateDatabase(_values: Record<string, string>): Promise<{ ok: boolean; message: string }> {
+async function validateDatabase(_values: Record<string, string>, projectId?: string): Promise<{ ok: boolean; message: string }> {
   const dbUrl = _values.DATABASE_URL;
   if (!dbUrl) return { ok: false, message: "DATABASE_URL no proporcionada" };
 
-  // Validar que el formato sea un connection string PostgreSQL válido
   if (!dbUrl.startsWith("postgresql://") && !dbUrl.startsWith("postgres://")) {
     return { ok: false, message: "DATABASE_URL debe comenzar con postgresql:// o postgres://" };
   }
 
-  // Usar la API REST de Supabase (REQ-001) para validar conectividad a la DB
-  // ya que psql + pooler puede tener issues de circuit breaker / SSL
-  const vault = readVault();
+  const vault = readVaultWithFallback(projectId);
   const supaValues = vault["REQ-001"];
   if (!supaValues?.SUPABASE_URL || !supaValues?.SUPABASE_SERVICE_ROLE_KEY) {
     return { ok: false, message: "Necesitás guardar REQ-001 (Supabase creds) primero para validar la DB" };
@@ -172,7 +195,6 @@ async function validateDatabase(_values: Record<string, string>): Promise<{ ok: 
         "Content-Type": "application/json",
       },
     });
-    // Cualquier respuesta (incluso 404 para la rpc inexistente) confirma que PostgREST → DB funciona
     if (res.status < 500) {
       return { ok: true, message: `Database OK (formato válido, Supabase API conectada)` };
     }
@@ -199,12 +221,11 @@ async function validateTiendanubeStore(values: Record<string, string>): Promise<
   return { ok: true, message: `Tiendanube Store OK (ID: ${storeId})` };
 }
 
-async function validateTiendanubeToken(values: Record<string, string>): Promise<{ ok: boolean; message: string }> {
+async function validateTiendanubeToken(values: Record<string, string>, projectId?: string): Promise<{ ok: boolean; message: string }> {
   const token = values.TIENDANUBE_ACCESS_TOKEN;
   if (!token) return { ok: false, message: "TIENDANUBE_ACCESS_TOKEN no proporcionado" };
 
-  // Leer store_id del vault (REQ-TN-STORE)
-  const storeValues = getRequestValues("REQ-TN-STORE");
+  const storeValues = getRequestValues("REQ-TN-STORE", projectId);
   const storeId = storeValues?.TIENDANUBE_STORE_ID;
 
   if (!storeId) {
@@ -234,14 +255,14 @@ async function validateTiendanubeToken(values: Record<string, string>): Promise<
 
 // ─── Ejecutar script con vault env ──────────────────────────────────
 
-export function execScript(scriptName: string): Promise<{ ok: boolean; output: string; exitCode: number }> {
+export function execScript(scriptName: string, projectId?: string): Promise<{ ok: boolean; output: string; exitCode: number }> {
   const scriptPath = resolve(ROOT_DIR, "scripts", scriptName);
-  const env = { ...process.env, ...getAllValues() };
+  const env = { ...process.env, ...getAllValues(projectId) };
 
   return new Promise((resolve) => {
     execFile("bash", [scriptPath], { env, timeout: 120000, cwd: ROOT_DIR }, (error, stdout, stderr) => {
       const rawOutput = (stdout || "") + (stderr || "");
-      const output = redactOutput(rawOutput);
+      const output = redactOutput(rawOutput, projectId);
       if (error) {
         resolve({ ok: false, output, exitCode: error.code === "ETIMEDOUT" ? -1 : (error as any).status ?? 1 });
       } else {

@@ -13,6 +13,7 @@ export async function ensurePlanningRequests(
   db: SupabaseClient,
   profile: string,
   objectiveId?: string,
+  projectId?: string,
 ): Promise<{ created: string[]; skipped: string[] }> {
   const requests = PROFILE_REQUESTS[profile];
   if (!requests) return { created: [], skipped: [] };
@@ -21,32 +22,37 @@ export async function ensurePlanningRequests(
   const skipped: string[] = [];
 
   for (const req of requests) {
-    const { data: existing } = await db
+    let query = db
       .from("ops_requests")
       .select("id, status")
-      .eq("id", req.id)
-      .single();
+      .eq("id", req.id);
+
+    if (projectId) query = query.eq("project_id", projectId);
+
+    const { data: existing } = await query.single();
 
     if (existing && existing.status === "PROVIDED") {
       skipped.push(req.id);
       continue;
     }
 
-    await db.from("ops_requests").upsert(
-      {
-        id: req.id,
-        service: req.service,
-        type: req.type,
-        scopes: req.scopes,
-        purpose: req.purpose,
-        where_to_set: req.where_to_set,
-        validation_cmd: req.validation_cmd,
-        required_for_planning: req.required_for_planning,
-        objective_id: objectiveId ?? null,
-        status: existing?.status || "WAITING",
-      },
-      { onConflict: "id" },
-    );
+    const row: Record<string, unknown> = {
+      id: req.id,
+      service: req.service,
+      type: req.type,
+      scopes: req.scopes,
+      purpose: req.purpose,
+      where_to_set: req.where_to_set,
+      validation_cmd: req.validation_cmd,
+      required_for_planning: req.required_for_planning,
+      objective_id: objectiveId ?? null,
+      status: existing?.status || "WAITING",
+    };
+    if (projectId) row.project_id = projectId;
+
+    await db.from("ops_requests").upsert(row, {
+      onConflict: projectId ? "id,project_id" : "id",
+    });
 
     created.push(req.id);
   }

@@ -1,7 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDb } from "../../db.js";
+import { DEFAULT_PROJECT_ID } from "../../projectScope.js";
 
 export const TEST_PREFIX = "TEST-E2E-";
+export const TEST_PROJECT_ID = DEFAULT_PROJECT_ID;
+
+/** Common headers for scoped test requests */
+export const TEST_HEADERS = {
+  "x-project-id": TEST_PROJECT_ID,
+};
 
 export async function cleanupTestData(db?: SupabaseClient): Promise<void> {
   const client = db ?? getDb();
@@ -21,7 +28,7 @@ export async function cleanupTestData(db?: SupabaseClient): Promise<void> {
     .delete()
     .like("directive_id", `${TEST_PREFIX}%`);
 
-  // Reset wizard_state for tests
+  // Reset wizard_state for test project
   await client
     .from("wizard_state")
     .update({
@@ -29,7 +36,7 @@ export async function cleanupTestData(db?: SupabaseClient): Promise<void> {
       answers: {},
       updated_at: new Date().toISOString(),
     })
-    .eq("id", 1);
+    .eq("project_id", TEST_PROJECT_ID);
 
   // Delete test requests
   await client.from("ops_requests").delete().like("id", `${TEST_PREFIX}%`);
@@ -39,13 +46,13 @@ export async function seedWizardCompleted(db?: SupabaseClient): Promise<void> {
   const client = db ?? getDb();
   await client.from("wizard_state").upsert(
     {
-      id: 1,
+      project_id: TEST_PROJECT_ID,
       has_completed_wizard: true,
       answers: { what_to_achieve: "Test E2E", profile: "tiendanube" },
       current_profile: "tiendanube",
       updated_at: new Date().toISOString(),
     },
-    { onConflict: "id" },
+    { onConflict: "project_id" },
   );
 }
 
@@ -63,6 +70,7 @@ export async function seedActiveObjective(
       profile: "tiendanube",
       priority: 1,
       status: "active",
+      project_id: TEST_PROJECT_ID,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "id" },
@@ -89,9 +97,10 @@ export async function seedPlanningRequests(
       validation_cmd: "",
       status,
       required_for_planning: true,
+      project_id: TEST_PROJECT_ID,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: "id" },
+    { onConflict: "id,project_id" },
   );
 
   await client.from("ops_requests").upsert(
@@ -105,9 +114,10 @@ export async function seedPlanningRequests(
       validation_cmd: "",
       status,
       required_for_planning: true,
+      project_id: TEST_PROJECT_ID,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: "id" },
+    { onConflict: "id,project_id" },
   );
 }
 
