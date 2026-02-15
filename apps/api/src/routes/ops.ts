@@ -745,10 +745,21 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
       if (error) return { ok: false, error: error.message };
 
+      // Clean up other heartbeats from the same hostname (old PIDs)
+      const hostname = (meta as Record<string, unknown>)?.hostname;
+      if (hostname) {
+        db.from("runner_heartbeats")
+          .delete()
+          .eq("project_id", DEFAULT_PROJECT_ID)
+          .neq("runner_id", runner_id)
+          .filter("meta->>hostname", "eq", String(hostname))
+          .then(() => {});
+      }
+
       logDecision({
         source: "runner",
         decision_key: "runner_heartbeat",
-        decision_value: { runner_id, hostname: (meta as Record<string, unknown>)?.hostname ?? null },
+        decision_value: { runner_id, hostname: hostname ?? null },
         context: meta ? { meta } : null,
         project_id: DEFAULT_PROJECT_ID,
       });
@@ -758,6 +769,7 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // GET /ops/runner/status — Get runner status (considers offline if last_seen > 60s ago)
+  // Auto-cleans entries older than 5 min to avoid stale ghost runners
   app.get("/ops/runner/status", async (request): Promise<ApiResponse<RunnerHeartbeat[]>> => {
     const projectId = getProjectIdOrDefault(request);
     const db = getDb();
@@ -769,16 +781,29 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
 
     if (error) return { ok: false, error: error.message };
 
-    // Compute offline status based on last_seen_at (60s threshold)
     const now = new Date();
-    const enriched = (data as RunnerHeartbeat[]).map((r) => {
-      const lastSeen = new Date(r.last_seen_at);
-      const elapsed = (now.getTime() - lastSeen.getTime()) / 1000;
-      const computed_status: "online" | "offline" = elapsed > 60 ? "offline" : "online";
-      return { ...r, status: computed_status };
-    });
+    const ONLINE_THRESHOLD = 60; // seconds
+    const STALE_THRESHOLD = 300; // 5 min — auto-delete
 
-    return { ok: true, data: enriched };
+    const fresh: RunnerHeartbeat[] = [];
+    const staleIds: string[] = [];
+
+    for (const r of data as RunnerHeartbeat[]) {
+      const elapsed = (now.getTime() - new Date(r.last_seen_at).getTime()) / 1000;
+      if (elapsed > STALE_THRESHOLD) {
+        staleIds.push(r.id);
+      } else {
+        const computed_status: "online" | "offline" = elapsed > ONLINE_THRESHOLD ? "offline" : "online";
+        fresh.push({ ...r, status: computed_status });
+      }
+    }
+
+    // Auto-cleanup stale entries in background
+    if (staleIds.length > 0) {
+      db.from("runner_heartbeats").delete().in("id", staleIds).then(() => {});
+    }
+
+    return { ok: true, data: fresh };
   });
 
   // ─── METRICS ─────────────────────────────────────────────────────────
