@@ -79,6 +79,7 @@ export function Dashboard() {
   const [vmStatus, setVmStatus] = useState<string | null>(null);
   const [vmConfigured, setVmConfigured] = useState(false);
   const [vmLoading, setVmLoading] = useState(false);
+  const [vmProgress, setVmProgress] = useState<{ step: string; pct: number } | null>(null);
 
   // Wizard + preconditions
   const [wizardDone, setWizardDone] = useState<boolean | null>(null);
@@ -227,22 +228,115 @@ export function Dashboard() {
   const vmAction = async (action: "start" | "stop" | "reset") => {
     setVmLoading(true);
     setActionMsg(null);
+
+    const isStart = action === "start" || action === "reset";
+
+    // Step 1: send command
+    setVmProgress({ step: "Enviando comando...", pct: 5 });
     try {
       const res = await apiFetch(`/api/ops/runner/vm/${action}`, { method: "POST" });
       const data = await res.json();
-      if (data.ok) {
-        const labels: Record<string, string> = { start: "VM arrancando...", stop: "VM apagandose...", reset: "VM reiniciando..." };
-        setActionMsg({ type: "ok", text: labels[action] });
-        // Refresh after a few seconds
-        setTimeout(fetchAll, 5000);
-      } else {
+      if (!data.ok) {
         setActionMsg({ type: "error", text: data.error ?? "Error" });
+        setVmProgress(null);
+        setVmLoading(false);
+        return;
       }
     } catch {
       setActionMsg({ type: "error", text: "Error de conexion" });
-    } finally {
+      setVmProgress(null);
       setVmLoading(false);
+      return;
     }
+
+    // Step 2: poll VM status
+    setVmProgress({ step: isStart ? "Esperando que la VM arranque..." : "Esperando que la VM se apague...", pct: 15 });
+
+    const targetVmStatus = isStart ? "running" : "terminated";
+    const maxPolls = 30; // ~90s
+    let polls = 0;
+    let vmReady = false;
+
+    while (polls < maxPolls) {
+      await new Promise((r) => setTimeout(r, 3000));
+      polls++;
+      const pct = Math.min(15 + Math.round((polls / maxPolls) * 50), 65);
+
+      try {
+        const vmRes = await apiFetch("/api/ops/runner/vm");
+        const vmData = (await vmRes.json()) as ApiResponse<{ vm_status: string }>;
+        if (vmData.ok && vmData.data) {
+          const st = vmData.data.vm_status;
+          setVmStatus(st);
+
+          if (st === targetVmStatus) {
+            vmReady = true;
+            break;
+          }
+
+          const vmLabels: Record<string, string> = {
+            staging: "VM iniciando el sistema operativo...",
+            running: "VM encendida",
+            stopping: "VM cerrando procesos...",
+            terminated: "VM apagada",
+            suspended: "VM suspendida",
+          };
+          setVmProgress({ step: vmLabels[st] ?? `VM: ${st}`, pct });
+        }
+      } catch { /* ignore, retry */ }
+    }
+
+    if (!vmReady) {
+      setVmProgress(null);
+      setActionMsg({ type: "error", text: "Timeout esperando la VM. Revisa en unos minutos." });
+      setVmLoading(false);
+      fetchAll();
+      return;
+    }
+
+    // Step 3: if starting, wait for runner to come online
+    if (isStart) {
+      setVmProgress({ step: "VM lista. Esperando que el agente arranque...", pct: 70 });
+
+      let runnerOnline = false;
+      const maxRunnerPolls = 20; // ~60s
+      let rPolls = 0;
+
+      while (rPolls < maxRunnerPolls) {
+        await new Promise((r) => setTimeout(r, 3000));
+        rPolls++;
+        const pct = Math.min(70 + Math.round((rPolls / maxRunnerPolls) * 25), 95);
+
+        try {
+          const rRes = await apiFetch("/api/ops/runner/status");
+          const rData = (await rRes.json()) as ApiResponse<Runner[]>;
+          if (rData.ok && rData.data) {
+            setRunners(rData.data);
+            if (rData.data.some((r) => r.status === "online")) {
+              runnerOnline = true;
+              break;
+            }
+          }
+          setVmProgress({ step: "Agente iniciando servicios...", pct });
+        } catch { /* ignore */ }
+      }
+
+      if (runnerOnline) {
+        setVmProgress({ step: "Agente online. Todo listo.", pct: 100 });
+      } else {
+        setVmProgress({ step: "VM lista pero el agente tarda en responder. Puede tardar unos segundos mas.", pct: 95 });
+      }
+    } else {
+      // stopping
+      setVmProgress({ step: "VM apagada correctamente.", pct: 100 });
+    }
+
+    // Clear after 3s
+    setTimeout(() => {
+      setVmProgress(null);
+      setVmLoading(false);
+      fetchAll();
+    }, 3000);
   };
 
   const refresh = () => {
@@ -278,38 +372,33 @@ export function Dashboard() {
         )}
 
         {/* Runner / VM status alert */}
-        {onlineRunners.length === 0 && (
+        {onlineRunners.length === 0 && !vmProgress && (
           <div className="mb-6 p-4 bg-red-900/40 border border-red-700 rounded-lg">
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-3">
               <span className="w-3 h-3 rounded-full bg-red-500 flex-shrink-0" />
-              <span className="text-red-200 font-medium">
+              <span className="text-red-200 font-medium flex-1">
                 {vmConfigured && vmStatus !== "running"
                   ? "VM apagada — el agente no puede correr"
                   : "Agente offline — no se ejecutan tareas"}
               </span>
-            </div>
-            {vmConfigured && (
-              <div className="flex items-center gap-2 mt-2">
-                <span className="text-xs text-gray-400">VM: {vmStatus ?? "?"}</span>
-                {vmStatus !== "running" ? (
+              {vmConfigured && !vmLoading && (
+                vmStatus !== "running" ? (
                   <button
                     onClick={() => vmAction("start")}
-                    disabled={vmLoading}
-                    className="px-3 py-1 text-xs bg-green-700 hover:bg-green-600 disabled:bg-gray-600 rounded transition-colors"
+                    className="px-4 py-1.5 text-xs bg-green-700 hover:bg-green-600 rounded font-medium transition-colors"
                   >
-                    {vmLoading ? "..." : "Prender VM"}
+                    Prender
                   </button>
                 ) : (
                   <button
                     onClick={() => vmAction("reset")}
-                    disabled={vmLoading}
-                    className="px-3 py-1 text-xs bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-600 rounded transition-colors"
+                    className="px-4 py-1.5 text-xs bg-yellow-700 hover:bg-yellow-600 rounded font-medium transition-colors"
                   >
-                    {vmLoading ? "..." : "Reiniciar VM"}
+                    Reiniciar
                   </button>
-                )}
-              </div>
-            )}
+                )
+              )}
+            </div>
           </div>
         )}
 
@@ -458,8 +547,24 @@ export function Dashboard() {
         <div>
           <h3 className="text-lg font-semibold mb-3">Agente</h3>
 
+          {/* Progress bar */}
+          {vmProgress && (
+            <div className="mb-3 bg-gray-800 rounded-lg p-4 border border-gray-700">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-200">{vmProgress.step}</span>
+                <span className="text-xs text-gray-500">{vmProgress.pct}%</span>
+              </div>
+              <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${vmProgress.pct === 100 ? "bg-green-500" : "bg-indigo-500"}`}
+                  style={{ width: `${vmProgress.pct}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           {/* VM control bar */}
-          {vmConfigured && (
+          {vmConfigured && !vmProgress && (
             <div className="flex items-center gap-3 bg-gray-800 rounded-lg px-4 py-3 mb-2">
               <span className={`w-2.5 h-2.5 rounded-full ${vmStatus === "running" ? "bg-green-500" : vmStatus === "staging" || vmStatus === "stopping" ? "bg-yellow-500 animate-pulse" : "bg-red-500"}`} />
               <span className="text-sm text-gray-200 flex-1">
@@ -469,15 +574,15 @@ export function Dashboard() {
                 {vmStatus === "running" ? (
                   <>
                     <button onClick={() => vmAction("reset")} disabled={vmLoading} className="px-3 py-1 text-xs bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-600 rounded transition-colors">
-                      {vmLoading ? "..." : "Reiniciar"}
+                      Reiniciar
                     </button>
                     <button onClick={() => vmAction("stop")} disabled={vmLoading} className="px-3 py-1 text-xs bg-red-700 hover:bg-red-600 disabled:bg-gray-600 rounded transition-colors">
-                      {vmLoading ? "..." : "Apagar"}
+                      Apagar
                     </button>
                   </>
                 ) : vmStatus === "terminated" || vmStatus === "stopped" ? (
                   <button onClick={() => vmAction("start")} disabled={vmLoading} className="px-3 py-1 text-xs bg-green-700 hover:bg-green-600 disabled:bg-gray-600 rounded transition-colors">
-                    {vmLoading ? "..." : "Prender"}
+                    Prender
                   </button>
                 ) : null}
               </div>
