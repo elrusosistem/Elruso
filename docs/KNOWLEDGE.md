@@ -98,3 +98,68 @@ sin verificar el resultado real del apply.
   - Intra-directive dedup: duplicate → skipped
   - task_id collision: → new ID generated
   - Zero-created: → explicit reason in hashes
+
+---
+
+## Runner Task Execution
+
+### Columnas en ops_tasks (migration 018)
+
+| Columna | Tipo | Default | Descripcion |
+|---|---|---|---|
+| `task_type` | TEXT | `'generic'` | Tipo de task (generic, echo, shell) |
+| `steps` | JSONB | `'[]'` | Steps ejecutables `[{name, cmd}, ...]` |
+| `params` | JSONB | `'{}'` | Parametros para handlers builtin |
+
+### Persistencia
+
+- **POST /ops/tasks**: acepta `task_type`, `steps`, `params` en body
+- **POST /ops/directives/:id/apply**: persiste estos campos desde `tasks_to_create` de la directiva
+- **POST /ops/tasks/claim**: devuelve los 3 campos en el response (select *)
+
+### Executor (`scripts/executor.mjs`)
+
+Motor de ejecucion Node.js invocado por el runner como subprocess.
+
+**Input** (JSON via stdin):
+```json
+{ "task_id": "...", "task_type": "echo", "steps": [], "params": {}, "project_root": "/path" }
+```
+
+**Output** (JSON via stdout):
+```json
+{ "ok": true, "mode": "A|B", "results": [{ "name", "cmd", "exit_code", "output", "duration_ms" }] }
+```
+
+**Modos de resolucion**:
+1. **Modo A**: si `steps` contiene objetos `{name, cmd}`, ejecuta cada uno en orden
+2. **Modo B**: si no hay steps ejecutables, busca handler por `task_type`
+3. Sin match → `{ ok: false, error: "no_actionable_steps" }`
+
+**Handlers builtin**:
+- `echo` — crea archivo con `params.message` en `params.filepath` (demo E2E)
+- `shell` — ejecuta `params.commands[].cmd` directamente
+
+**Comportamiento**:
+- Se detiene al primer step que falla (exit_code != 0)
+- Output truncado a 500 chars por step
+- Timeout de 30s por step
+- Siempre exit 0, resultado como JSON
+
+### Runner integration
+
+El runner (`scripts/runner_local.sh`) invoca el executor en cada task:
+1. Extrae `task_type`, `steps`, `params` del claim response
+2. Construye JSON input con jq
+3. Invoca: `echo "$input" | node scripts/executor.mjs`
+4. Parsea resultado y registra cada step via API
+5. Guardrail NOOP sigue funcionando: si `custom_steps_ran=false` y `before_sha==after_sha` → FAILED
+
+### Telemetria (decisions_log)
+
+```
+task_started    → {task_id, task_type}
+step_started    → {task_id, step_name, step_index}
+step_finished   → {task_id, step_name, step_index, exit_code, duration_ms}
+task_finished   → {task_id, status, custom_steps_ran, steps_count}
+```

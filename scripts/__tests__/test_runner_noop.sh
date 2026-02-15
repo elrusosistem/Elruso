@@ -19,35 +19,47 @@ assert_eq() {
   fi
 }
 
-# ─── Test 1: Task con directive_id → FAILED (no_actionable_steps) ───
-echo "Test 1: Task con directive_id debe fallar con no_actionable_steps"
+# ─── Fix C: Pre-validacion (handler check) ──────────────────────────
+
+echo "Test 1: Task con directive_id y sin handler → FAILED (no_actionable_steps)"
+has_handler=false
 task_directive_id="DIR-1770995367892-sis5"
-should_fail_prevalidation="false"
-if [ -n "$task_directive_id" ] && [ "$task_directive_id" != "null" ]; then
-  should_fail_prevalidation="true"
+should_fail="false"
+if [ "$has_handler" = false ] && [ -n "$task_directive_id" ] && [ "$task_directive_id" != "null" ]; then
+  should_fail="true"
 fi
-assert_eq "directive task detected" "true" "$should_fail_prevalidation"
+assert_eq "no handler + directive → fail" "true" "$should_fail"
 
-# ─── Test 2: Task sin directive_id → pasa pre-validacion ────────────
-echo "Test 2: Task sin directive_id pasa pre-validacion"
+echo "Test 2: Task con directive_id PERO con handler → pasa"
+has_handler=true
+task_directive_id="DIR-1770995367892-sis5"
+should_fail="false"
+if [ "$has_handler" = false ] && [ -n "$task_directive_id" ] && [ "$task_directive_id" != "null" ]; then
+  should_fail="true"
+fi
+assert_eq "has handler + directive → pass" "false" "$should_fail"
+
+echo "Test 3: Task sin directive_id y sin handler → pasa (diagnostico)"
+has_handler=false
 task_directive_id=""
-should_fail_prevalidation="false"
-if [ -n "$task_directive_id" ] && [ "$task_directive_id" != "null" ]; then
-  should_fail_prevalidation="true"
+should_fail="false"
+if [ "$has_handler" = false ] && [ -n "$task_directive_id" ] && [ "$task_directive_id" != "null" ]; then
+  should_fail="true"
 fi
-assert_eq "non-directive task passes" "false" "$should_fail_prevalidation"
+assert_eq "no handler + no directive → pass" "false" "$should_fail"
 
-# ─── Test 3: Task con directive_id=null → pasa pre-validacion ───────
-echo "Test 3: Task con directive_id=null pasa pre-validacion"
+echo "Test 4: Task con directive_id=null → pasa"
+has_handler=false
 task_directive_id="null"
-should_fail_prevalidation="false"
-if [ -n "$task_directive_id" ] && [ "$task_directive_id" != "null" ]; then
-  should_fail_prevalidation="true"
+should_fail="false"
+if [ "$has_handler" = false ] && [ -n "$task_directive_id" ] && [ "$task_directive_id" != "null" ]; then
+  should_fail="true"
 fi
-assert_eq "null directive passes" "false" "$should_fail_prevalidation"
+assert_eq "null directive → pass" "false" "$should_fail"
 
-# ─── Test 4: NOOP — before_sha == after_sha sin custom steps → FAILED
-echo "Test 4: before_sha == after_sha sin custom steps → NOOP FAILED"
+# ─── Fix A: NOOP guardrail ──────────────────────────────────────────
+
+echo "Test 5: before_sha == after_sha sin custom steps → NOOP FAILED"
 before_sha="a2127d8"
 after_sha="a2127d8"
 custom_steps_ran=false
@@ -57,8 +69,7 @@ if [ "$before_sha" = "$after_sha" ] && [ "$custom_steps_ran" = false ]; then
 fi
 assert_eq "NOOP detected" "true" "$is_noop"
 
-# ─── Test 5: before_sha != after_sha → NOT NOOP ─────────────────────
-echo "Test 5: before_sha != after_sha → no es NOOP"
+echo "Test 6: before_sha != after_sha → no es NOOP"
 before_sha="a2127d8"
 after_sha="c4e407f"
 custom_steps_ran=false
@@ -68,8 +79,7 @@ if [ "$before_sha" = "$after_sha" ] && [ "$custom_steps_ran" = false ]; then
 fi
 assert_eq "not NOOP with different SHA" "false" "$is_noop"
 
-# ─── Test 6: before_sha == after_sha pero con custom steps → NOT NOOP
-echo "Test 6: before_sha == after_sha pero custom steps ran → no es NOOP"
+echo "Test 7: before_sha == after_sha pero custom steps ran → no es NOOP"
 before_sha="a2127d8"
 after_sha="a2127d8"
 custom_steps_ran=true
@@ -79,27 +89,32 @@ if [ "$before_sha" = "$after_sha" ] && [ "$custom_steps_ran" = false ]; then
 fi
 assert_eq "not NOOP with custom steps" "false" "$is_noop"
 
-# ─── Test 7: file_changes vacio cuando before == after ───────────────
-echo "Test 7: file_changes debe quedar vacio cuando before_sha == after_sha"
+# ─── Fix B: file_changes sin fallback ───────────────────────────────
+
+echo "Test 8: file_changes vacio cuando before_sha == after_sha"
 before_sha="a2127d8"
 after_sha="a2127d8"
 diff_output=""
-# Simula la logica del runner (FIX B): solo genera diff si SHAs difieren
 if [ "$before_sha" != "unknown" ] && [ "$after_sha" != "unknown" ] && [ "$before_sha" != "$after_sha" ]; then
-  diff_output="M	some/file.ts"  # Solo se ejecuta si SHAs difieren
+  diff_output="M	some/file.ts"
 fi
-# NO hay fallback con HEAD~1 HEAD
 assert_eq "no file_changes when SHA equal" "" "$diff_output"
 
-# ─── Test 8: file_changes se genera cuando before != after ───────────
-echo "Test 8: file_changes se genera cuando before_sha != after_sha"
+echo "Test 9: file_changes se genera cuando before_sha != after_sha"
 before_sha="a2127d8"
 after_sha="c4e407f"
 diff_output=""
 if [ "$before_sha" != "unknown" ] && [ "$after_sha" != "unknown" ] && [ "$before_sha" != "$after_sha" ]; then
-  diff_output="M	some/file.ts"  # Simulado — en real seria git diff
+  diff_output="M	some/file.ts"
 fi
 assert_eq "file_changes generated when SHA differ" "M	some/file.ts" "$diff_output"
+
+# ─── Diferenciacion de eventos ───────────────────────────────────────
+
+echo "Test 10: task_no_actionable_steps != task_noop_detected"
+event_prevalidation="task_no_actionable_steps"
+event_noop="task_noop_detected"
+assert_eq "events are different" "false" "$([ "$event_prevalidation" = "$event_noop" ] && echo true || echo false)"
 
 # ─── Resumen ────────────────────────────────────────────────────────
 echo ""

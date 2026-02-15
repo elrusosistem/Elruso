@@ -19,7 +19,8 @@ const NARRATIVES: Record<string, string> = {
   task_requeued: "Se reintentara una tarea",
   task_blocked_max_attempts: "Tarea fallo tras reintentos",
   task_skipped_duplicate: "Tarea duplicada omitida",
-  task_noop_detected: "Tarea sin efecto detectada",
+  task_noop_detected: "Tarea ejecutada sin efecto",
+  task_no_actionable_steps: "Tarea sin handler disponible",
   run_completed: "Ejecucion completada",
   run_failed: "La ejecucion fallo",
   backlog_cleanup: "Se optimizo el backlog",
@@ -43,7 +44,8 @@ const PLURALS: Record<string, string> = {
   task_failed: "{n} tareas fallaron",
   task_requeued: "Se reintentaran {n} tareas",
   task_skipped_duplicate: "{n} tareas duplicadas omitidas",
-  task_noop_detected: "{n} tareas sin efecto detectadas",
+  task_noop_detected: "{n} tareas ejecutadas sin efecto",
+  task_no_actionable_steps: "{n} tareas sin handler disponible",
   run_completed: "{n} ejecuciones completadas",
   run_failed: "{n} ejecuciones fallaron",
   request_validated_ok: "{n} credenciales validadas",
@@ -54,7 +56,7 @@ const PLURALS: Record<string, string> = {
 
 // ─── Tipo de evento ─────────────────────────────────────────────────
 function getEventType(key: string): ActivityEventType {
-  if (key.includes("failed") || key.includes("blocked") || key.includes("noop") || key === "directive_reject") return "error";
+  if (key.includes("failed") || key.includes("blocked") || key.includes("noop") || key.includes("no_actionable") || key === "directive_reject") return "error";
   if (key.startsWith("gpt_") || key.startsWith("directive_")) return "plan";
   if (key.startsWith("task_")) return "task";
   if (key === "run_completed") return "run";

@@ -133,56 +133,18 @@ process_task() {
   local task_id="$1"
   local task_title="$2"
   local task_directive_id="$3"
+  local task_type="${4:-generic}"
+  local task_steps="${5:-[]}"
+  local task_params="${6:-{}}"
 
   log "=== Procesando: ${task_id} — ${task_title} (project: ${CURRENT_PROJECT_ID}) ==="
 
-  # ─── FIX C: Validacion pre-ejecucion ──────────────────────────────
-  # El runner actual solo ejecuta diagnosticos (node -v, pnpm -v, git head).
-  # Si la task viene de una directiva GPT, no tiene handler real → fail rapido.
-  if [ -n "$task_directive_id" ] && [ "$task_directive_id" != "null" ]; then
-    log "  FAIL: task proviene de directiva ${task_directive_id} pero runner no tiene handler"
-    log "  El runner solo ejecuta diagnosticos — no puede cumplir el objetivo de la task"
-
-    # Crear run para registrar el intento
-    local branch="" before_sha=""
-    branch=$(git -C "$ROOT" branch --show-current 2>/dev/null || echo "unknown")
-    before_sha=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-
-    local run_response="" run_id=""
-    run_response=$(api_post_scoped "/runs" "{
-      \"task_id\": \"${task_id}\",
-      \"branch\": \"${branch}\",
-      \"commit_hash\": \"${before_sha}\"
-    }")
-    run_id=$(echo "$run_response" | jq -r '.data.id // empty' 2>/dev/null || echo "")
-
-    if [ -n "$run_id" ]; then
-      run_step "$run_id" "pre-validation" "echo 'FAILED: no_actionable_steps — runner has no handler for directive tasks'" > /dev/null 2>&1
-
-      local escaped_noop_summary=""
-      escaped_noop_summary=$(echo "FAILED: no_actionable_steps. Task ${task_id} requires execution handler. Directive: ${task_directive_id}." | jq -Rs '.' 2>/dev/null || echo '""')
-
-      api_patch_scoped "/runs/${run_id}" "{
-        \"status\": \"failed\",
-        \"summary\": ${escaped_noop_summary},
-        \"file_changes\": []
-      }" > /dev/null 2>&1 || true
-    fi
-
-    # Log decision: task_noop_detected
-    api_post_scoped "/ops/decisions" "{
-      \"source\": \"runner\",
-      \"decision_key\": \"task_noop_detected\",
-      \"decision_value\": {\"task_id\": \"${task_id}\", \"reason\": \"no_actionable_steps\", \"directive_id\": \"${task_directive_id}\"},
-      \"run_id\": \"${run_id:-}\"
-    }" > /dev/null 2>&1 || true
-
-    # Marcar task como failed (no requeue — no tiene sentido reintentar)
-    api_patch_scoped "/ops/tasks/${task_id}" "{\"status\":\"failed\",\"last_error\":\"no_actionable_steps: runner has no handler for directive tasks\",\"finished_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > /dev/null 2>&1 || true
-    log "  task -> FAILED (no_actionable_steps)"
-    log "=== Fin: ${task_id} ==="
-    return 1
-  fi
+  # Telemetria: task_started
+  api_post_scoped "/ops/decisions" "{
+    \"source\": \"runner\",
+    \"decision_key\": \"task_started\",
+    \"decision_value\": {\"task_id\": \"${task_id}\", \"task_type\": \"${task_type}\"}
+  }" > /dev/null 2>&1 || true
 
   # 1. Capturar BEFORE_SHA
   local branch="" before_sha=""
@@ -207,21 +169,95 @@ process_task() {
 
   log "  run creado: ${run_id} (before_sha: ${before_sha})"
 
-  # 3. Ejecutar steps de diagnostico
+  # 3. Ejecutar via executor.mjs
   local all_ok=true
-  local ec=""
   local custom_steps_ran=false
 
-  ec=$(run_step "$run_id" "version-node" "node -v")
-  [ "$ec" -ne 0 ] 2>/dev/null && all_ok=false
+  # Construir JSON input para executor
+  local executor_input=""
+  executor_input=$(jq -n \
+    --arg task_id "$task_id" \
+    --arg task_type "$task_type" \
+    --argjson steps "$task_steps" \
+    --argjson params "$task_params" \
+    --arg project_root "$ROOT" \
+    '{task_id: $task_id, task_type: $task_type, steps: $steps, params: $params, project_root: $project_root}' 2>/dev/null)
 
-  ec=$(run_step "$run_id" "version-pnpm" "pnpm -v")
-  [ "$ec" -ne 0 ] 2>/dev/null && all_ok=false
+  if [ -z "$executor_input" ]; then
+    log "  ERROR: no se pudo construir input para executor"
+    executor_input="{\"task_id\":\"${task_id}\",\"task_type\":\"${task_type}\",\"steps\":[],\"params\":{},\"project_root\":\"${ROOT}\"}"
+  fi
 
-  ec=$(run_step "$run_id" "git-head" "git -C ${ROOT} rev-parse --short HEAD")
-  [ "$ec" -ne 0 ] 2>/dev/null && all_ok=false
+  log "  invocando executor (task_type: ${task_type})"
 
-  # TODO: Aqui irian custom steps cuando el runner tenga un motor de ejecucion
+  local executor_output=""
+  executor_output=$(echo "$executor_input" | node "${ROOT}/scripts/executor.mjs" 2>/dev/null) || true
+
+  if [ -z "$executor_output" ]; then
+    log "  ERROR: executor no produjo output"
+    all_ok=false
+  else
+    local executor_ok="" executor_error="" executor_mode=""
+    executor_ok=$(echo "$executor_output" | jq -r '.ok // false' 2>/dev/null || echo "false")
+    executor_error=$(echo "$executor_output" | jq -r '.error // empty' 2>/dev/null || echo "")
+    executor_mode=$(echo "$executor_output" | jq -r '.mode // empty' 2>/dev/null || echo "")
+
+    log "  executor: ok=${executor_ok}, mode=${executor_mode:-none}, error=${executor_error:-none}"
+
+    if [ "$executor_ok" = "true" ]; then
+      custom_steps_ran=true
+    else
+      all_ok=false
+      if [ "$executor_error" = "no_actionable_steps" ]; then
+        log "  executor: no_actionable_steps"
+      fi
+    fi
+
+    # Registrar cada step del executor via API
+    local step_count=""
+    step_count=$(echo "$executor_output" | jq '.results | length' 2>/dev/null || echo "0")
+
+    local i=0
+    while [ "$i" -lt "$step_count" ]; do
+      local step_name="" step_cmd="" step_exit="" step_output_raw=""
+      step_name=$(echo "$executor_output" | jq -r ".results[$i].name // \"step-$i\"" 2>/dev/null || echo "step-$i")
+      step_cmd=$(echo "$executor_output" | jq -r ".results[$i].cmd // \"\"" 2>/dev/null || echo "")
+      step_exit=$(echo "$executor_output" | jq -r ".results[$i].exit_code // 0" 2>/dev/null || echo "0")
+      step_output_raw=$(echo "$executor_output" | jq -r ".results[$i].output // \"\"" 2>/dev/null || echo "")
+
+      # Telemetria: step_started
+      api_post_scoped "/ops/decisions" "{
+        \"source\": \"runner\",
+        \"decision_key\": \"step_started\",
+        \"decision_value\": {\"task_id\": \"${task_id}\", \"step_name\": \"${step_name}\", \"step_index\": $i},
+        \"run_id\": \"${run_id}\"
+      }" > /dev/null 2>&1 || true
+
+      # Registrar step via run_step (re-usar helper existente para formato)
+      local escaped_step_output=""
+      escaped_step_output=$(echo "$step_output_raw" | jq -Rs '.' 2>/dev/null || echo '""')
+
+      api_post_scoped "/runs/${run_id}/steps" "{
+        \"step_name\": \"${step_name}\",
+        \"cmd\": $(echo "$step_cmd" | jq -Rs '.' 2>/dev/null || echo '""'),
+        \"exit_code\": ${step_exit},
+        \"output_excerpt\": ${escaped_step_output}
+      }" > /dev/null 2>&1 || log "  WARN: no se pudo registrar step ${step_name}"
+
+      local step_duration=""
+      step_duration=$(echo "$executor_output" | jq -r ".results[$i].duration_ms // 0" 2>/dev/null || echo "0")
+
+      # Telemetria: step_finished
+      api_post_scoped "/ops/decisions" "{
+        \"source\": \"runner\",
+        \"decision_key\": \"step_finished\",
+        \"decision_value\": {\"task_id\": \"${task_id}\", \"step_name\": \"${step_name}\", \"step_index\": $i, \"exit_code\": ${step_exit}, \"duration_ms\": ${step_duration}},
+        \"run_id\": \"${run_id}\"
+      }" > /dev/null 2>&1 || true
+
+      i=$((i + 1))
+    done
+  fi
 
   # 4. Capturar AFTER_SHA
   local after_sha=""
@@ -344,7 +380,9 @@ process_task() {
   local file_count=0
   file_count=$(echo "$file_changes_json" | jq 'length' 2>/dev/null || echo "0")
 
-  local summary="Task ${task_id}. Steps: 3. Files: ${file_count}. Status: ${final_status}. SHA: ${before_sha}..${after_sha}."
+  local steps_ran=""
+  steps_ran=$(echo "${executor_output:-{}}" | jq '.results | length' 2>/dev/null || echo "0")
+  local summary="Task ${task_id}. Steps: ${steps_ran}. Files: ${file_count}. Status: ${final_status}. SHA: ${before_sha}..${after_sha}."
   local escaped_summary=""
   escaped_summary=$(echo "$summary" | jq -Rs '.' 2>/dev/null || echo '""')
 
@@ -369,8 +407,18 @@ process_task() {
     if [ "$attempt_num" -ge 1 ] 2>/dev/null; then backoff=60; fi
     if [ "$attempt_num" -ge 2 ] 2>/dev/null; then backoff=120; fi
 
-    requeue_task "$task_id" "steps failed (exit_code=${ec})" "$backoff"
+    local executor_err=""
+    executor_err=$(echo "${executor_output:-{}}" | jq -r '.error // "unknown"' 2>/dev/null || echo "unknown")
+    requeue_task "$task_id" "executor: ${executor_err}" "$backoff"
   fi
+
+  # Telemetria: task_finished
+  api_post_scoped "/ops/decisions" "{
+    \"source\": \"runner\",
+    \"decision_key\": \"task_finished\",
+    \"decision_value\": {\"task_id\": \"${task_id}\", \"status\": \"${final_status}\", \"custom_steps_ran\": ${custom_steps_ran}, \"steps_count\": ${steps_ran:-0}},
+    \"run_id\": \"${run_id}\"
+  }" > /dev/null 2>&1 || true
 
   log "=== Fin: ${task_id} ==="
   return 0
@@ -501,9 +549,15 @@ run_once() {
   local task_directive_id=""
   task_directive_id=$(echo "$claim_response" | jq -r '.data.directive_id // empty' 2>/dev/null || echo "")
 
-  log "Claimed: ${task_id} — ${task_title} (project: ${CURRENT_PROJECT_ID}, directive: ${task_directive_id:-none})"
+  # Extract execution fields from claim response
+  local task_type="" task_steps="" task_params=""
+  task_type=$(echo "$claim_response" | jq -r '.data.task_type // "generic"' 2>/dev/null || echo "generic")
+  task_steps=$(echo "$claim_response" | jq -c '.data.steps // []' 2>/dev/null || echo "[]")
+  task_params=$(echo "$claim_response" | jq -c '.data.params // {}' 2>/dev/null || echo "{}")
 
-  process_task "$task_id" "$task_title" "${task_directive_id:-}"
+  log "Claimed: ${task_id} — ${task_title} (project: ${CURRENT_PROJECT_ID}, directive: ${task_directive_id:-none}, type: ${task_type})"
+
+  process_task "$task_id" "$task_title" "${task_directive_id:-}" "$task_type" "$task_steps" "$task_params"
 }
 
 if [ "$LOOP_MODE" = true ]; then

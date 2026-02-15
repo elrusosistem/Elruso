@@ -4,36 +4,37 @@ Registro de deploys y cambios del sistema El Ruso.
 
 ---
 
-## 2026-02-15 — Fix: eliminar falsos positivos de tasks (NOOP guardrail)
+## 2026-02-15 — feat: Runner ejecuta tareas reales (Modos A & B)
 
 ### Resumen
-El runner marcaba todas las tasks como DONE aunque no produjeran ningun cambio. Tasks de GPT terminaban con status=done, before_sha==after_sha, 0 cambios de codigo, y encima registraba file_changes falsos del commit anterior. Este fix elimina los 3 problemas.
-
-### Archivos modificados
-- `scripts/runner_local.sh` — 3 fixes:
-  - **Fix A (NOOP guardrail)**: si before_sha==after_sha y no hubo custom steps → status=failed con "NOOP: no changes / no side-effects"
-  - **Fix B (file_changes falsos)**: eliminado fallback `git diff HEAD~1 HEAD` cuando before==after; file_changes queda vacio
-  - **Fix C (pre-validacion)**: tasks con directive_id fallan inmediatamente con "no_actionable_steps" porque el runner no tiene handler para ejecutarlas
-- `apps/api/src/activity/activityBuilder.ts` — agregado `task_noop_detected` a narrativas ("Tarea sin efecto detectada"), plurales, y clasificado como type=error
-- `apps/api/src/__tests__/activity.test.ts` — 1 test nuevo para task_noop_detected (narrativa + type + plural)
+El runner ahora ejecuta steps reales de las tasks en vez de solo 3 comandos diagnosticos hardcodeados. Usa un executor Node.js (`scripts/executor.mjs`) que soporta dos modos: Modo A (steps explicitos con `{name, cmd}`) y Modo B (handlers builtin por `task_type`). Los campos `task_type`, `steps` y `params` se persisten en DB y se propagan desde directivas GPT. El bloque FIX C (pre-validacion que auto-fallaba tasks de directivas) fue eliminado — el executor ahora se encarga.
 
 ### Archivos nuevos
-- `scripts/__tests__/test_runner_noop.sh` — 8 tests bash unitarios para logica NOOP: directive detection, NOOP con SHA iguales, no-NOOP con SHA distintos, no-NOOP con custom steps, file_changes vacio/lleno
+- `db/migrations/018_task_execution_columns.sql` — agrega task_type (TEXT), steps (JSONB), params (JSONB) a ops_tasks con defaults seguros
+- `scripts/executor.mjs` — motor de ejecucion Node.js. Modo A: steps con {name, cmd}. Modo B: handler por task_type (echo, shell). Sin match → no_actionable_steps
+- `scripts/__tests__/executor.test.mjs` — 28 tests unitarios del executor
+
+### Archivos modificados
+- `apps/api/src/routes/ops.ts` — TaskEntry interface + persistir task_type/steps/params en POST /ops/tasks y directive apply handler
+- `scripts/runner_local.sh` — integrar executor.mjs, eliminar FIX C (pre-validacion), eliminar diagnosticos hardcodeados, telemetria task_started/step_started/step_finished/task_finished
 
 ### Impacto funcional
-- Tasks de GPT (con directive_id) ahora fallan inmediatamente con "no_actionable_steps" en vez de fingir que se ejecutaron
-- Tasks de diagnostico sin cambios de codigo ahora fallan con "NOOP" en vez de marcarse done
-- file_changes ya no miente mostrando el diff del commit anterior
-- Nuevo decision event `task_noop_detected` en decisions_log y activity stream
+- Tasks con steps `[{name, cmd}]` se ejecutan en orden (Modo A)
+- Tasks con `task_type` conocido (echo, shell) generan steps automaticamente (Modo B)
+- Tasks sin steps ni handler → `no_actionable_steps` via executor (ya no requiere FIX C)
+- Guardrail NOOP sigue funcionando: before_sha==after_sha sin custom steps → FAILED
+- Telemetria granular: task_started, step_started, step_finished, task_finished en decisions_log
 
 ### Riesgos / TODOs
-- Todas las tasks de GPT van a fallar hasta que el runner tenga un motor de ejecucion real (esto es correcto — antes fallaban silenciosamente)
-- Tasks manuales de diagnostico sin directive_id siguen ejecutando los 3 checks pero ahora fallan como NOOP si no producen cambios
+- Migration 018 debe aplicarse en Supabase antes de que GPT envie tasks con steps/params
+- Tasks existentes (task_type=generic, steps=[], params={}) siguen funcionando (NOOP si no cambian nada)
+- Handlers builtin: solo "echo" y "shell" por ahora — agregar mas segun necesidad
 
 ### Verificacion
-- 8/8 tests bash passed (`scripts/__tests__/test_runner_noop.sh`)
-- 120 tests vitest passed (6 activity, 42 directive_v1, +resto)
-- types build OK, api build OK, web build OK
+- 28/28 executor tests passed
+- 121/121 vitest tests passed (0 broken)
+- types build OK, api build OK
+- bash syntax check passed
 
 ---
 

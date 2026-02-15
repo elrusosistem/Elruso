@@ -61,6 +61,9 @@ interface TaskEntry {
   claimed_by?: string;
   claimed_at?: string;
   finished_at?: string;
+  task_type?: string;
+  steps?: unknown[];
+  params?: Record<string, unknown>;
 }
 
 interface RunnerHeartbeat {
@@ -405,6 +408,9 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
         depends_on: body.depends_on || [],
         blocked_by: body.blocked_by || [],
         directive_id: body.directive_id || null,
+        task_type: body.task_type || "generic",
+        steps: body.steps || [],
+        params: body.params || {},
         project_id: projectId,
       };
 
@@ -1239,6 +1245,9 @@ export async function opsRoutes(app: FastifyInstance): Promise<void> {
               directive_id: id,
               max_attempts: 3,
               task_hash: tHash,
+              task_type: (t.task_type as string) || "generic",
+              steps: (t.steps as unknown[]) || [],
+              params: (t.params as Record<string, unknown>) || {},
               project_id: projectId,
             });
 
