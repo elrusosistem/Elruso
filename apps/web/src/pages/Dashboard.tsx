@@ -316,15 +316,17 @@ export function Dashboard() {
           subtitle="Vista general del sistema"
           actions={
             <>
-              <Tooltip2026 text={!canPlan ? planBlockReason : "La IA analiza el sistema y propone mejoras"}>
-                <GlowButton
-                  onClick={runGpt}
-                  disabled={gptRunning || !canPlan}
-                  variant="primary"
-                >
-                  {gptRunning ? "Generando..." : "Generar plan"}
-                </GlowButton>
-              </Tooltip2026>
+              <span data-tour="generate-plan-btn">
+                <Tooltip2026 text={!canPlan ? planBlockReason : "La IA analiza el sistema y propone mejoras"}>
+                  <GlowButton
+                    onClick={runGpt}
+                    disabled={gptRunning || !canPlan}
+                    variant="primary"
+                  >
+                    {gptRunning ? "Generando..." : "Generar plan"}
+                  </GlowButton>
+                </Tooltip2026>
+              </span>
               <Tooltip2026 text={paused ? "Reanudar la ejecucion de tareas" : "Detener temporalmente todas las tareas"}>
                 <GlowButton
                   onClick={togglePause}

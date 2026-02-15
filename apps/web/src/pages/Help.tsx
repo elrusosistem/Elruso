@@ -1,69 +1,93 @@
 import { OnboardingContent } from "../components/OperatorOnboardingModal";
 import {
-  PageContainer, GlassCard, SectionBlock, HeroPanel, AnimatedFadeIn,
+  PageContainer, GlassCard, GlowButton, SectionBlock, HeroPanel, AnimatedFadeIn,
 } from "../ui2026";
+import { useTour, TOUR_TOTAL_MINUTES } from "../tour";
 
-const HOW_TO_START = [
-  { step: "1", title: "Crea un proyecto", desc: "Anda a Proyectos y hace clic en \"Nuevo proyecto\". Elegí un nombre y un perfil (Abierto, Tiendanube o WhatsApp API)." },
-  { step: "2", title: "Completa la estrategia", desc: "Despues de crear el proyecto, el sistema te guia con preguntas simples sobre tu negocio. Si el perfil necesita datos (tokens, claves), te los pide en Configuracion." },
-  { step: "3", title: "Generá tu primer plan", desc: "Con al menos un objetivo activo y los datos configurados, podes generar un plan. El sistema propone mejoras y vos aprobas o rechazas." },
+/* ── Como se usa (guia principal) ── */
+
+const GUIDE_STEPS = [
+  {
+    step: "1",
+    title: "Crea un proyecto",
+    desc: "Anda a Proyectos en la barra lateral y hace clic en \"Nuevo proyecto\". Elegí un nombre y un perfil: Abierto (cualquier sistema), Tiendanube (e-commerce) o WhatsApp API (mensajeria). El perfil no se puede cambiar despues.",
+  },
+  {
+    step: "2",
+    title: "Completa la estrategia",
+    desc: "El wizard te hace preguntas simples sobre tu negocio: que vendes, que queres lograr, que herramientas usas. Con eso la IA entiende tu contexto. Lo encontras en Estrategia en la barra lateral.",
+  },
+  {
+    step: "3",
+    title: "Configura lo requerido",
+    desc: "Si tu perfil necesita tokens o claves (Tiendanube, WhatsApp), anda a Configuracion y completa los datos marcados como requeridos. El sistema valida cada dato en tiempo real.",
+  },
+  {
+    step: "4",
+    title: "Genera tu primer plan",
+    desc: "Desde Inicio, hace clic en \"Generar plan\". La IA analiza tus objetivos, tu estrategia y tus datos, y genera un plan con tareas concretas. Vos lo revisas en Planes.",
+  },
+  {
+    step: "5",
+    title: "Aproba y deja que ejecute",
+    desc: "Si el plan te convence, aprobalo. El sistema ejecuta las tareas automaticamente. Podes ver el progreso en Tareas y los resultados en Ejecuciones.",
+  },
 ];
+
+/* ── Secciones del panel ── */
+
+const SECTIONS = [
+  { name: "Inicio", desc: "Dashboard con metricas, estado del sistema, accesos rapidos a generar plan, pausar y actualizar. Muestra objetivos activos, tareas pendientes y estado del agente." },
+  { name: "Proyectos", desc: "Lista de todos tus proyectos. Podes crear nuevos, seleccionar uno para trabajar o borrar los que ya no uses. Cada proyecto es independiente." },
+  { name: "Objetivos", desc: "Metas de negocio en lenguaje natural. La IA genera planes alineados a estos objetivos. Podes activar, pausar o completar objetivos." },
+  { name: "Planes", desc: "Propuestas de trabajo generadas por la IA. Cada plan tiene tareas concretas. Los revisas, aprobas o rechazas. Solo los aprobados se ejecutan." },
+  { name: "Tareas", desc: "Acciones individuales que el sistema ejecuta: actualizar archivos, correr procesos, configurar integraciones. Cada tarea tiene un estado visible." },
+  { name: "Ejecuciones", desc: "Historial completo de lo que se hizo. Cada ejecucion muestra que cambio, el output del proceso y si fue exitoso o fallo." },
+  { name: "Decisiones", desc: "Registro de todas las decisiones tomadas por la IA: que aprobo, que rechazo, que planeo. Funciona como log de auditoria." },
+  { name: "Configuracion", desc: "Tokens, claves y datos que el sistema necesita para operar. Se validan automaticamente. Los valores se guardan de forma segura y nunca se exponen." },
+  { name: "Estrategia", desc: "Wizard paso a paso para definir tu negocio. Tipo de empresa, productos, canales de venta, herramientas. Se completa una vez por proyecto." },
+  { name: "Runners", desc: "Estado de los agentes ejecutores. Muestra si estan activos, su ultimo heartbeat y cuantas tareas procesaron." },
+];
+
+/* ── Conceptos clave ── */
 
 const CONCEPTS: { q: string; a: string }[] = [
   {
     q: "Que es un Proyecto?",
-    a: "Un proyecto es tu espacio de trabajo aislado. Cada proyecto tiene su propio perfil, objetivos, configuracion y planes. Podes tener varios proyectos, por ejemplo uno para tu tienda y otro para WhatsApp.",
+    a: "Un proyecto es tu espacio de trabajo aislado. Tiene su propio perfil, objetivos, configuracion y planes. Podes tener varios proyectos, por ejemplo uno para tu tienda y otro para WhatsApp. Todo esta separado.",
   },
   {
     q: "Que es un Perfil?",
-    a: "El perfil define que tipo de integracion usa tu proyecto. Hay 3 opciones: \"Abierto\" (cualquier sistema, vos definis el objetivo), \"Tiendanube\" (conectar tienda y automatizar operaciones), y \"WhatsApp API\" (conectar tu WhatsApp Business API y preparar plantillas). El perfil se elige al crear el proyecto y no se puede cambiar despues.",
+    a: "El perfil define que tipo de integracion usa tu proyecto. Hay 3 opciones: \"Abierto\" (cualquier sistema, sin datos obligatorios), \"Tiendanube\" (e-commerce, requiere token y store ID) y \"WhatsApp API\" (mensajeria, requiere 7 credenciales de Meta). Se elige al crear el proyecto y no se cambia.",
   },
   {
     q: "Que es un Plan?",
-    a: "Es una propuesta automatica que la IA genera analizando tu proyecto. Incluye tareas concretas como actualizar archivos, configurar integraciones o correr procesos. Vos lo revisas y decides si aprobarlo.",
+    a: "Es una propuesta automatica que la IA genera analizando tu proyecto, tus objetivos y tu contexto. Incluye tareas concretas. Vos lo revisas y decides si aprobarlo. Solo los planes aprobados se ejecutan.",
   },
   {
-    q: "Por que pide tokens y datos?",
-    a: "Para conectarse a servicios externos (Tiendanube, WhatsApp, etc.), el sistema necesita tokens de acceso. Son llaves seguras que le permiten operar en tu nombre. Los valores se guardan de forma segura en un vault local, nunca se suben al panel ni al repositorio.",
+    q: "Que es una Directiva?",
+    a: "Es una instruccion que GPT le da al sistema. Define que hacer, como y en que orden. Las directivas se convierten en tareas ejecutables. Podes verlas y aprobar/rechazar desde Planes.",
   },
   {
-    q: "Que hace el boton \"Generar plan\"?",
-    a: "Lanza un analisis con IA que revisa el estado de tu proyecto, tus objetivos y los datos disponibles. Si todo esta en orden, genera un plan con tareas. Si falta algo, te avisa que configurar primero.",
+    q: "Que es un Objetivo?",
+    a: "Es una meta de negocio escrita en lenguaje natural. Por ejemplo: \"Aumentar las ventas un 20%\" o \"Automatizar respuestas de WhatsApp\". La IA genera planes alineados a tus objetivos activos.",
   },
   {
-    q: "Y si no entiende mi objetivo?",
-    a: "El sistema te hace preguntas de clarificacion si necesita mas contexto. Podes escribir en lenguaje natural, no necesitas ser tecnico. Si algo no queda claro, genera un plan conservador y te pide feedback.",
+    q: "Que es un Runner?",
+    a: "Es el agente ejecutor que procesa las tareas. Corre en segundo plano, reporta heartbeat cada pocos segundos y ejecuta las acciones de los planes aprobados.",
   },
 ];
 
+/* ── Preguntas frecuentes ── */
+
 const FAQ: { q: string; a: string }[] = [
   {
-    q: "Que es el Wizard?",
-    a: "Es la configuracion inicial de cada proyecto. Te hace preguntas sobre tu negocio para entender que necesitas. Se completa una vez por proyecto. Podes verlo en Estrategia.",
-  },
-  {
-    q: "Que son los Objetivos?",
-    a: "Son las metas de tu negocio. El sistema genera planes alineados a estos objetivos. Podes activar, pausar o completar objetivos desde la seccion Objetivos.",
-  },
-  {
     q: "Por que no puedo generar un plan?",
-    a: "Necesitas: (1) completar la configuracion inicial (wizard), (2) tener al menos un objetivo activo, y (3) configurar los datos requeridos en Configuracion.",
-  },
-  {
-    q: "Que es una Tarea?",
-    a: "Una accion concreta que el sistema ejecuta. Por ejemplo: actualizar un archivo, correr un proceso o configurar algo.",
-  },
-  {
-    q: 'Que significa "En curso"?',
-    a: "El sistema esta trabajando en eso ahora mismo. No necesitas hacer nada, solo esperar.",
-  },
-  {
-    q: 'Que significa "Necesita configuracion"?',
-    a: "Falta una clave o dato para poder continuar. Anda a Configuracion y completa lo que se pide.",
+    a: "Necesitas: (1) completar la estrategia (wizard), (2) tener al menos un objetivo activo, y (3) configurar los datos requeridos por tu perfil en Configuracion. El dashboard te muestra un checklist de lo que falta.",
   },
   {
     q: "Que pasa si pauso el sistema?",
-    a: "No se ejecutan nuevas tareas hasta que lo reanudes. Las tareas pendientes quedan en espera.",
+    a: "No se ejecutan nuevas tareas hasta que lo reanudes. Las tareas pendientes quedan en espera. Podes pausar y reanudar desde el dashboard.",
   },
   {
     q: "Puede romper algo?",
@@ -71,21 +95,35 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "Donde veo lo que cambio?",
-    a: 'En "Ejecuciones". Cada ejecucion tiene una seccion "Que cambio" donde ves los archivos afectados.',
+    a: "En Ejecuciones. Cada ejecucion tiene detalle de los archivos afectados, el output del proceso y el resultado.",
   },
   {
-    q: "Que es el Agente?",
-    a: "Es el programa que ejecuta las tareas. Si dice \"Activo\" esta funcionando. Si dice \"Apagado\" necesita iniciarse.",
+    q: "Si algo aparece en rojo, que hago?",
+    a: "Generalmente falta una clave o dato. Anda a Configuracion y completa lo que se marca como requerido. El sistema reintenta automaticamente cuando el dato esta disponible.",
   },
   {
-    q: "Por que me pide tokens?",
-    a: "Para conectarse a servicios externos, el sistema necesita tokens de acceso. Son llaves seguras que le permiten operar en tu nombre. Los tokens se guardan de forma segura y nunca se comparten.",
+    q: "Como cambio entre proyectos?",
+    a: "Hace clic en el nombre del proyecto en la barra superior o anda a Proyectos en la barra lateral. Al seleccionar otro proyecto, todo el panel cambia al contexto de ese proyecto.",
   },
   {
-    q: 'Que significa "No se puede generar plan" y como lo destrabo?',
-    a: "Hay 3 causas comunes: (1) No completaste la configuracion inicial — anda a Estrategia y completa el wizard. (2) No hay objetivos activos — anda a Objetivos y activa al menos uno. (3) Faltan datos de configuracion — anda a Configuracion y completa los datos marcados como requeridos.",
+    q: "Puedo tener varios proyectos?",
+    a: "Si. Cada proyecto es independiente: tiene su propio perfil, objetivos, datos y planes. Podes crear tantos como necesites.",
+  },
+  {
+    q: "Que es el modo tecnico?",
+    a: "El panel tiene dos modos: Operador (vista simple, enfocada en acciones) y Tecnico (vista completa con metricas detalladas, IDs, runners). Podes cambiar con el toggle en la barra superior.",
+  },
+  {
+    q: "Los tokens son seguros?",
+    a: "Si. Los tokens se guardan en un vault del servidor y nunca se envian al frontend. Solo se validan al ingresarlos y se usan internamente para operar.",
+  },
+  {
+    q: "Que pasa si el agente esta apagado?",
+    a: "Las tareas se acumulan en espera. Cuando el agente se inicia, procesa todo lo pendiente. Podes ver el estado del agente en el dashboard.",
   },
 ];
+
+/* ── WABA FAQ ── */
 
 const WABA_FAQ: { q: string; a: string }[] = [
   {
@@ -106,9 +144,34 @@ const WABA_FAQ: { q: string; a: string }[] = [
   },
   {
     q: "Por que no genera plan si faltan credenciales WABA?",
-    a: "El sistema necesita verificar que tenes acceso real a la API de WhatsApp antes de generar un plan. Sin las credenciales no puede validar tu cuenta ni planificar integraciones.",
+    a: "El sistema necesita verificar que tenes acceso real a la API de WhatsApp antes de generar un plan. Sin las 7 credenciales obligatorias no puede validar tu cuenta ni planificar integraciones.",
   },
 ];
+
+/* ── Componentes ── */
+
+function StepItem({ step, title, desc, delay = 0 }: { step: string; title: string; desc: string; delay?: number }) {
+  return (
+    <AnimatedFadeIn delay={delay}>
+      <GlassCard>
+        <div className="flex gap-4">
+          <div
+            className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full text-sm font-bold text-white"
+            style={{
+              background: "linear-gradient(135deg, rgba(99,102,241,0.8), rgba(139,92,246,0.7))",
+            }}
+          >
+            {step}
+          </div>
+          <div>
+            <h4 className="text-sm font-medium text-white mb-1">{title}</h4>
+            <p className="text-sm text-slate-400">{desc}</p>
+          </div>
+        </div>
+      </GlassCard>
+    </AnimatedFadeIn>
+  );
+}
 
 function FaqItem({ q, a, delay = 0 }: { q: string; a: string; delay?: number }) {
   return (
@@ -121,35 +184,61 @@ function FaqItem({ q, a, delay = 0 }: { q: string; a: string; delay?: number }) 
   );
 }
 
+/* ── Pagina ── */
+
 export function Help() {
+  const [tour, tourActions] = useTour();
+
   return (
     <PageContainer maxWidth="md">
-      <HeroPanel title="Ayuda" subtitle="Guias, conceptos y preguntas frecuentes" />
+      <HeroPanel title="Como se usa?" subtitle="Guia completa del sistema, secciones, conceptos y preguntas frecuentes" />
 
-      {/* Reuse onboarding content */}
+      {/* Recorrido guiado */}
+      <div className="mb-8">
+        <AnimatedFadeIn>
+          <GlassCard glow={tour.completed ? "success" : "primary"}>
+            <h3 className="text-lg font-semibold text-white mb-1">
+              {tour.completed ? "Recorrido completado" : "Recorrido guiado"}
+            </h3>
+            <p className="text-sm text-slate-400 mb-4">
+              {tour.completed
+                ? "Ya completaste la guia interactiva. Podes reiniciarla en cualquier momento."
+                : `Recorre las secciones del panel paso a paso con una guia interactiva (${TOUR_TOTAL_MINUTES}).`}
+            </p>
+            <GlowButton
+              variant={tour.completed ? "secondary" : "primary"}
+              size="md"
+              onClick={() => { tourActions.reset(); tourActions.start(); }}
+            >
+              {tour.completed ? "Reiniciar guia" : "Iniciar recorrido"}
+            </GlowButton>
+          </GlassCard>
+        </AnimatedFadeIn>
+      </div>
+
+      {/* Resumen rapido (onboarding) */}
       <div className="mb-10">
         <OnboardingContent />
       </div>
 
-      {/* How to start */}
-      <SectionBlock title="Como empezar">
+      {/* Guia paso a paso */}
+      <SectionBlock title="Paso a paso">
         <div className="space-y-3">
-          {HOW_TO_START.map((item, i) => (
-            <AnimatedFadeIn key={item.step} delay={i * 60}>
+          {GUIDE_STEPS.map((item, i) => (
+            <StepItem key={item.step} step={item.step} title={item.title} desc={item.desc} delay={i * 60} />
+          ))}
+        </div>
+      </SectionBlock>
+
+      {/* Secciones del panel */}
+      <SectionBlock title="Que hay en cada seccion">
+        <div className="space-y-3">
+          {SECTIONS.map((item, i) => (
+            <AnimatedFadeIn key={item.name} delay={i * 40}>
               <GlassCard>
-                <div className="flex gap-4">
-                  <div
-                    className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full text-sm font-bold text-white"
-                    style={{
-                      background: "linear-gradient(135deg, rgba(99,102,241,0.8), rgba(139,92,246,0.7))",
-                    }}
-                  >
-                    {item.step}
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-white mb-1">{item.title}</h4>
-                    <p className="text-sm text-slate-400">{item.desc}</p>
-                  </div>
+                <div className="flex gap-3">
+                  <span className="text-sm font-semibold text-accent-primary min-w-[110px]">{item.name}</span>
+                  <p className="text-sm text-slate-400">{item.desc}</p>
                 </div>
               </GlassCard>
             </AnimatedFadeIn>
@@ -157,7 +246,7 @@ export function Help() {
         </div>
       </SectionBlock>
 
-      {/* Concepts */}
+      {/* Conceptos clave */}
       <SectionBlock title="Conceptos clave">
         <div className="space-y-4">
           {CONCEPTS.map((item, i) => (

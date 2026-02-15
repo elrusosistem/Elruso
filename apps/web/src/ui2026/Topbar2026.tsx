@@ -3,6 +3,7 @@ import type { ApiResponse } from "@elruso/types";
 import { apiFetch } from "../api";
 import { useUiMode } from "../uiMode";
 import { useSelectedProject } from "../projectStore";
+import { TourTopbarButton } from "../tour";
 
 interface Topbar2026Props {
   pageTitle: string;
@@ -182,6 +183,7 @@ export function Topbar2026({ pageTitle }: Topbar2026Props) {
       <h1 className="text-sm font-semibold text-slate-200 tracking-wide">{pageTitle}</h1>
       <div className="flex items-center gap-2">
         <ProjectBadge />
+        <TourTopbarButton />
         <ModeToggle />
         <RunnerBadge />
         <PauseControl />

@@ -33,22 +33,31 @@ export function OnboardingContent({ onDismiss }: { onDismiss?: () => void }) {
         <GlassCard>
           <h3 className="text-sm font-semibold text-accent-primary mb-2">Que hace este sistema</h3>
           <ul className="text-sm text-slate-300 space-y-1">
-            <li>Genera planes de trabajo automaticamente</li>
-            <li>Ejecuta tareas tecnicas sin que tengas que intervenir</li>
-            <li>Te muestra que se hizo y que falta</li>
+            <li>Creas un proyecto con un perfil (Abierto, Tiendanube o WhatsApp)</li>
+            <li>Definis objetivos de negocio en lenguaje natural</li>
+            <li>La IA genera planes de trabajo y los ejecuta automaticamente</li>
+            <li>Vos solo revisas, aprobas y ves los resultados</li>
           </ul>
         </GlassCard>
 
         <GlassCard>
-          <h3 className="text-sm font-semibold text-accent-primary mb-2">Que significa cada seccion</h3>
+          <h3 className="text-sm font-semibold text-accent-primary mb-2">Secciones del panel</h3>
           <dl className="text-sm text-slate-300 space-y-1.5">
             <div className="flex gap-2">
               <dt className="font-medium text-white min-w-[110px]">Inicio</dt>
-              <dd>Vista general del estado del sistema</dd>
+              <dd>Estado general, metricas y accesos rapidos</dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="font-medium text-white min-w-[110px]">Proyectos</dt>
+              <dd>Crear, seleccionar y borrar proyectos</dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="font-medium text-white min-w-[110px]">Objetivos</dt>
+              <dd>Metas de negocio que guian la IA</dd>
             </div>
             <div className="flex gap-2">
               <dt className="font-medium text-white min-w-[110px]">Planes</dt>
-              <dd>Propuestas de mejora generadas por la IA</dd>
+              <dd>Propuestas generadas por la IA para revisar</dd>
             </div>
             <div className="flex gap-2">
               <dt className="font-medium text-white min-w-[110px]">Tareas</dt>
@@ -60,7 +69,11 @@ export function OnboardingContent({ onDismiss }: { onDismiss?: () => void }) {
             </div>
             <div className="flex gap-2">
               <dt className="font-medium text-white min-w-[110px]">Configuracion</dt>
-              <dd>Datos que el sistema necesita (claves, tokens)</dd>
+              <dd>Tokens y claves que el sistema necesita</dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="font-medium text-white min-w-[110px]">Estrategia</dt>
+              <dd>Wizard inicial para definir tu negocio</dd>
             </div>
           </dl>
         </GlassCard>
@@ -68,11 +81,12 @@ export function OnboardingContent({ onDismiss }: { onDismiss?: () => void }) {
         <GlassCard>
           <h3 className="text-sm font-semibold text-accent-primary mb-2">Flujo recomendado</h3>
           <ol className="text-sm text-slate-300 space-y-1 list-decimal list-inside">
+            <li>Crear un proyecto en <span className="font-medium text-white">Proyectos</span></li>
+            <li>Completar el wizard en <span className="font-medium text-white">Estrategia</span></li>
+            <li>Configurar datos requeridos en <span className="font-medium text-white">Configuracion</span></li>
             <li>Hacer clic en <span className="font-medium text-white">"Generar plan"</span></li>
-            <li>Revisar el plan creado en <span className="font-medium text-white">Planes</span></li>
-            <li>Aprobarlo</li>
-            <li>El sistema ejecuta solo</li>
-            <li>Mirar <span className="font-medium text-white">Ejecuciones</span> para ver resultados</li>
+            <li>Revisar y aprobar el plan</li>
+            <li>El sistema ejecuta solo — ver resultados en <span className="font-medium text-white">Ejecuciones</span></li>
           </ol>
         </GlassCard>
 
@@ -80,7 +94,7 @@ export function OnboardingContent({ onDismiss }: { onDismiss?: () => void }) {
           <h3 className="text-sm font-semibold text-accent-primary mb-2">Si algo aparece en rojo</h3>
           <ul className="text-sm text-slate-300 space-y-1">
             <li>Puede necesitar configuracion (una clave o dato)</li>
-            <li>Ir a <span className="font-medium text-white">"Configuracion"</span> y completar lo que falte</li>
+            <li>Ir a <span className="font-medium text-white">Configuracion</span> y completar lo que falte</li>
             <li>El sistema reintenta automaticamente</li>
           </ul>
         </GlassCard>

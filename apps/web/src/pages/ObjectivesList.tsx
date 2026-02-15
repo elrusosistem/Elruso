@@ -83,6 +83,7 @@ export function ObjectivesList() {
   const activeCount = objectives.filter((o) => o.status === "active").length;
 
   return (
+    <div data-tour="objectives-list">
     <PageContainer maxWidth="lg">
       <HeroPanel
         title="Objetivos"
@@ -189,5 +190,6 @@ export function ObjectivesList() {
         </div>
       )}
     </PageContainer>
+    </div>
   );
 }

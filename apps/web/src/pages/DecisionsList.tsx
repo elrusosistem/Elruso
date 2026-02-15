@@ -234,6 +234,7 @@ export function DecisionsList({ filterRunId, filterDirectiveId }: Props) {
   }
 
   return (
+    <div data-tour="decisions-list">
     <PageContainer maxWidth="xl">
       <AnimatedFadeIn>
         <SectionBlock
@@ -268,5 +269,6 @@ export function DecisionsList({ filterRunId, filterDirectiveId }: Props) {
         </SectionBlock>
       </AnimatedFadeIn>
     </PageContainer>
+    </div>
   );
 }

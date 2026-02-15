@@ -16,6 +16,7 @@ import { StrategyWizard } from "./pages/StrategyWizard";
 import { ObjectivesList } from "./pages/ObjectivesList";
 import { ProjectsList } from "./pages/ProjectsList";
 import { OperatorOnboardingModal } from "./components/OperatorOnboardingModal";
+import { TourOverlay } from "./tour";
 
 function useHash() {
   const [hash, setHash] = useState(window.location.hash);
@@ -76,6 +77,7 @@ export function App() {
   return (
     <Layout2026 currentHash={hash}>
       {isOp && <OperatorOnboardingModal />}
+      <TourOverlay />
       {page}
     </Layout2026>
   );

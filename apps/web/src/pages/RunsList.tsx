@@ -62,6 +62,7 @@ export function RunsList() {
   }
 
   return (
+    <div data-tour="runs-list">
     <PageContainer maxWidth="lg">
       <HeroPanel
         title={isOp ? "Ejecuciones" : "Runs"}
@@ -107,5 +108,6 @@ export function RunsList() {
         ))}
       </div>
     </PageContainer>
+    </div>
   );
 }

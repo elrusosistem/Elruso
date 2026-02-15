@@ -102,6 +102,7 @@ export function TasksList() {
   );
 
   return (
+    <div data-tour="tasks-list">
     <PageContainer maxWidth="xl">
       <HeroPanel
         title={isOp ? "Tareas" : "Tasks"}
@@ -221,5 +222,6 @@ export function TasksList() {
         );
       })}
     </PageContainer>
+    </div>
   );
 }

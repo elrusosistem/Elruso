@@ -250,6 +250,7 @@ export function DirectivesList() {
   const payload = selectedDir?.payload_json;
 
   return (
+    <div data-tour="directives-list">
     <PageContainer maxWidth="xl">
       <h2 className="text-2xl font-bold mb-4">{isOp ? "Planes" : "Directivas"}</h2>
       {gptButton}
@@ -540,5 +541,6 @@ export function DirectivesList() {
         </div>
       </div>
     </PageContainer>
+    </div>
   );
 }

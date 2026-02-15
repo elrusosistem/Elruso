@@ -155,6 +155,7 @@ export function RequestsList() {
 
   if (isOp) {
     return (
+      <div data-tour="requests-list">
       <PageContainer maxWidth="lg">
         <h2 className="text-2xl font-bold mb-2">Configuracion</h2>
         <p className="text-sm text-slate-400 mb-6">
@@ -363,11 +364,13 @@ export function RequestsList() {
           <p className="text-slate-500">Todo configurado. No se necesitan datos adicionales.</p>
         )}
       </PageContainer>
+      </div>
     );
   }
 
   // Technical mode: original layout
   return (
+    <div data-tour="requests-list">
     <PageContainer maxWidth="lg">
       <h2 className="text-2xl font-bold mb-2">Requests</h2>
       <p className="text-sm text-slate-400 mb-6">
@@ -474,5 +477,6 @@ export function RequestsList() {
         ))}
       </div>
     </PageContainer>
+    </div>
   );
 }

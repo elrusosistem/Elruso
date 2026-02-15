@@ -364,6 +364,7 @@ export function StrategyWizard() {
 
   // ── Questions screen ──
   return (
+    <div data-tour="strategy-wizard">
     <PageContainer maxWidth="sm">
       {/* Profile badge (read-only, from project) */}
       <AnimatedFadeIn>
@@ -451,5 +452,6 @@ export function StrategyWizard() {
         </GlowButton>
       </div>
     </PageContainer>
+    </div>
   );
 }

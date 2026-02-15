@@ -30,6 +30,8 @@ export function ProjectsList() {
   const [newProfile, setNewProfile] = useState("open");
   const [selectedProject, setSelectedProject] = useSelectedProject();
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [viewProject, setViewProject] = useState<Project | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const fetchProjects = () => {
     setLoading(true);
@@ -203,7 +205,45 @@ export function ProjectsList() {
         </div>
       </Modal2026>
 
+      {/* View project modal */}
+      <Modal2026
+        open={!!viewProject}
+        onClose={() => { setViewProject(null); setCopied(false); }}
+        title="Abrir proyecto"
+        maxWidth="max-w-sm"
+      >
+        {viewProject && (
+          <>
+            <p className="text-white font-medium mb-3">{viewProject.name}</p>
+            <div className="glass rounded-lg px-3 py-2 mb-4 font-mono text-sm text-slate-300 select-all">
+              elruso.vercel.app/#/
+            </div>
+            <div className="flex gap-3">
+              <GlowButton
+                variant="primary"
+                size="md"
+                onClick={() => window.open("https://elruso.vercel.app/#/", "_blank")}
+              >
+                Abrir
+              </GlowButton>
+              <GlowButton
+                variant="secondary"
+                size="md"
+                onClick={() => {
+                  navigator.clipboard.writeText("https://elruso.vercel.app/#/");
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }}
+              >
+                {copied ? "Copiado!" : "Copiar link"}
+              </GlowButton>
+            </div>
+          </>
+        )}
+      </Modal2026>
+
       {/* Project list */}
+      <div data-tour="projects-list">
       <SectionBlock>
         <div className="space-y-2">
           {projects.map((p, i) => {
@@ -230,6 +270,15 @@ export function ProjectsList() {
                       {isSelected && (
                         <StatusPill status="active" label="Seleccionado" />
                       )}
+                      <span {...(i === 0 ? { "data-tour": "view-project-btn" } : {})}>
+                        <GlowButton
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => { e.stopPropagation(); setViewProject(p); }}
+                        >
+                          Ver proyecto
+                        </GlowButton>
+                      </span>
                       <GlowButton
                         variant="ghost"
                         size="sm"
@@ -258,6 +307,7 @@ export function ProjectsList() {
           )}
         </div>
       </SectionBlock>
+      </div>
     </PageContainer>
   );
 }
