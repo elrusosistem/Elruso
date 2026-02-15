@@ -19,6 +19,7 @@ export function ProjectsList() {
   const [newName, setNewName] = useState("");
   const [newProfile, setNewProfile] = useState("open");
   const [selectedProject, setSelectedProject] = useSelectedProject();
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   const fetchProjects = () => {
     setLoading(true);
@@ -74,6 +75,29 @@ export function ProjectsList() {
   const handleSelect = (project: Project) => {
     setSelectedProject({ id: project.id, name: project.name });
     window.location.hash = "#/";
+  };
+
+  const handleDelete = async (e: React.MouseEvent, project: Project) => {
+    e.stopPropagation();
+    if (deleting) return;
+    if (!window.confirm(`Eliminar "${project.name}"? Esta accion no se puede deshacer.`)) return;
+    setDeleting(project.id);
+    try {
+      const res = await apiFetch(`/api/ops/projects/${project.id}`, { method: "DELETE" });
+      const data: ApiResponse<{ deleted: boolean }> = await res.json();
+      if (data.ok) {
+        if (selectedProject?.id === project.id) {
+          setSelectedProject(null);
+        }
+        fetchProjects();
+      } else {
+        setError(data.error ?? "Error eliminando proyecto");
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDeleting(null);
+    }
   };
 
   if (loading) {
@@ -188,6 +212,14 @@ export function ProjectsList() {
                 {isSelected && (
                   <span className="text-xs bg-blue-600 px-2 py-0.5 rounded">Seleccionado</span>
                 )}
+                <button
+                  onClick={(e) => handleDelete(e, p)}
+                  disabled={deleting === p.id}
+                  className="text-xs text-gray-500 hover:text-red-400 px-2 py-1 rounded hover:bg-red-900/20 transition-colors"
+                  title="Eliminar proyecto"
+                >
+                  {deleting === p.id ? "..." : "Eliminar"}
+                </button>
               </div>
             </div>
           );

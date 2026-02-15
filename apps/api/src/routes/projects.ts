@@ -80,6 +80,42 @@ export async function projectsRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  // DELETE /ops/projects/:id — delete project and related data
+  app.delete<{ Params: { id: string } }>(
+    "/ops/projects/:id",
+    async (request): Promise<ApiResponse<{ deleted: boolean }>> => {
+      const { id } = request.params;
+      const db = getDb();
+
+      // Verify project exists
+      const { data: existing, error: findErr } = await db
+        .from("projects")
+        .select("id, name")
+        .eq("id", id)
+        .single();
+
+      if (findErr || !existing) {
+        return { ok: false, error: "Proyecto no encontrado" };
+      }
+
+      // Delete related data (cascade order)
+      await db.from("wizard_state").delete().eq("project_id", id);
+      await db.from("requests").delete().eq("project_id", id);
+      await db.from("objectives").delete().eq("project_id", id);
+      await db.from("decisions_log").delete().eq("project_id", id);
+
+      // Delete project
+      const { error: delErr } = await db
+        .from("projects")
+        .delete()
+        .eq("id", id);
+
+      if (delErr) return { ok: false, error: delErr.message };
+
+      return { ok: true, data: { deleted: true } };
+    },
+  );
+
   // PATCH /ops/projects/:id — update project (profile NOT editable)
   app.patch<{ Params: { id: string }; Body: { name?: string; profile?: string; is_active?: boolean } }>(
     "/ops/projects/:id",
