@@ -7,6 +7,7 @@ import {
   PageContainer, HeroPanel, GlassCard, GlowButton, MetricCard,
   SectionBlock, StatusPill, AnimatedFadeIn, Tooltip2026,
 } from "../ui2026";
+import { ActivityStream } from "../components/ActivityStream";
 
 interface TaskEntry {
   id: string;
@@ -351,6 +352,11 @@ export function Dashboard() {
             {actionMsg.text}
           </div>
         )}
+
+        {/* Activity stream */}
+        <SectionBlock title="Actividad del sistema">
+          <ActivityStream />
+        </SectionBlock>
 
         {/* Wizard banner */}
         {wizardDone === false && (

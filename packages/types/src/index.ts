@@ -155,6 +155,23 @@ export interface Project {
   is_active: boolean;
 }
 
+// ─── Activity Stream ────────────────────────────────────────────────
+export type ActivityEventType = "plan" | "task" | "run" | "error" | "system";
+
+export interface ActivityEvent {
+  id: string;
+  timestamp: string;
+  narrative: string;
+  type: ActivityEventType;
+  count: number;
+  related_task_id?: string;
+  related_run_id?: string;
+  related_directive_id?: string;
+  source: string;
+  decision_key: string;
+  raw?: Record<string, unknown>;
+}
+
 // ─── API responses ───────────────────────────────────────────────────
 export interface ApiResponse<T = unknown> {
   ok: boolean;
